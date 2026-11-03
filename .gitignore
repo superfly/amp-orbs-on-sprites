@@ -1,0 +1,8 @@
+.env
+.env.*
+!.env.example
+.state/
+node_modules/
+*.log
+work/
+.tools/

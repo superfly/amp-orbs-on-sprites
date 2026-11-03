@@ -1,0 +1,10 @@
+*
+!Dockerfile
+!package.json
+!start.mjs
+!dispatch.mjs
+!hosted.mjs
+!src/
+!src/**
+!bootstrap/
+!bootstrap/**
