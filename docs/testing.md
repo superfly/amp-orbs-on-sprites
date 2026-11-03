@@ -5,7 +5,7 @@
 ```sh
 npm test
 npm run check
-shellcheck bootstrap/*.sh
+shellcheck setup bootstrap/*.sh
 ```
 
 The tests use mock Sprites responses and a local fake `sprite` executable. They
@@ -21,6 +21,19 @@ They cover:
 - Preparation argv/stdin, remote timeout, and exclusion of Amp credentials.
 - Verified Amp installation, cache integrity, activity-hold renewal and cleanup.
 - Sprites 2 service schema and refusal to bootstrap the legacy/default runtime.
+
+## Continuous integration
+
+[CI](../.github/workflows/ci.yml) runs on pull requests to `main`, pushes to
+`main`, and manual dispatch. Both Node.js 22 and 24 run the full test suite,
+syntax checks, ShellCheck, and `./setup --help` on Ubuntu. There are no npm
+dependencies to install or cloud credentials to configure. These are offline
+checks; CI does not deploy a dispatcher or create live Orbs.
+
+The `main` branch requires both `Checks (Node 22)` and `Checks (Node 24)`, an
+up-to-date branch, one approving review, and resolved review conversations.
+New commits dismiss stale approvals. Protection applies to administrators, and
+force pushes and branch deletion are disabled.
 
 These tests establish adapter behavior against fixtures. See [live-test.md](live-test.md)
 for the real Sprites 2 results; unlisted scenarios remain release gates.
