@@ -1,19 +1,23 @@
 # Amp Orbs on Sprites
 
-Run a custom Amp Orb provider backed by persistent Fly.io Sprites 2. One Sprite
-belongs to each Orb. The controller can run on your laptop for testing or on an
-always-on host. This is an Orb provider, not an Amp Runner.
+Run your own Amp Orb provider on [Fly.io](https://fly.io) Sprites. Clone
+`amp-orbs-on-sprites`, run `./setup`, and start coding in Amp.
 
-A real smoke test in `alex-ezell` has verified remote command execution, file
-persistence, pause, warm sleep, resume on the same Sprite, and deletion. See
-[the live-test record](docs/live-test.md) for evidence and remaining limits.
+Setup deploys a hosted dispatcher in your Fly.io account. It creates a persistent
+Sprite for each Orb and manages its lifecycle. This is an experimental **Sprites 2**
+integration and an **Orb provider, not an Amp Runner**.
+
+Fresh setup, remote command execution, file persistence, pause, warm sleep,
+resume on the same Sprite, and deletion have passed live tests. See the
+[setup acceptance record](docs/setup-live-test.md) for evidence and remaining limits.
 
 ## Clone and run
 
-On macOS or Linux (including WSL), install **Node.js 22 or newer**, clone this
-repository, change into its directory, and run:
+On macOS or Linux (including WSL), install **Node.js 22 or newer**, then run:
 
 ```sh
+git clone https://github.com/superfly/amp-orbs-on-sprites.git
+cd amp-orbs-on-sprites
 ./setup
 ```
 
@@ -69,7 +73,7 @@ There are no npm dependencies to install.
 1. Sign into the target Sprites organization if you have not already:
 
    ```sh
-   sprite login -o alex-ezell
+   sprite login -o YOUR_ORG
    ```
 
 2. In [Amp Settings → Orbs](https://ampcode.com/settings/orbs), create a provider.
@@ -85,7 +89,7 @@ There are no npm dependencies to install.
 3. Start the controller:
 
    ```sh
-   npm start -- --org alex-ezell
+   npm start -- --org YOUR_ORG
    ```
 
 The launcher verifies Sprites access, downloads and checksum-verifies Amp from
@@ -101,7 +105,7 @@ For CLI testing:
 
 ```sh
 .tools/amp login
-.tools/amp -ox 'Run uname -m and id -un' --orb-provider fly-sprites-test
+.tools/amp -ox 'Run uname -m and id -un' --orb-provider YOUR_PROVIDER_NAME
 ```
 
 To continue an Orb remotely, keep `-ox`:
@@ -152,9 +156,9 @@ The start command reads `.env.local` and the process environment:
 | `SPRITE_TOKEN` | Optional for unattended hosts; otherwise use the saved Sprite login. |
 | `SPRITES_AMP_VERSION` | Optional exact Amp release. Otherwise install latest once and reuse the verified cache. |
 
-This checkout uses `SPRITES_PROVIDER_ID=mcp-amp-test` to preserve the live test's
-identity. Do not change a provider's prefix or lose its state directory while
-it owns Orbs. Records bind Orb IDs to Sprite IDs and organizations; mismatches
+Hosted setup generates a provider prefix unless you supply one. Do not change a
+provider's prefix or lose its state directory while it owns Orbs. Records bind
+Orb IDs to Sprite IDs and organizations; mismatches
 fail closed. One local controller runs per prefix. Do not run independent hosts
 for the same provider token; distributed coordination is not implemented.
 

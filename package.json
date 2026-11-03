@@ -1,5 +1,10 @@
 {
-  "name": "amp-sprites-orb-provider",
+  "name": "amp-orbs-on-sprites",
+  "description": "Run your own Amp Orb provider on Fly.io Sprites.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/superfly/amp-orbs-on-sprites.git"
+  },
   "version": "0.1.0",
   "private": true,
   "type": "module",

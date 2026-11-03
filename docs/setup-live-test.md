@@ -18,7 +18,8 @@ Ran `./setup --rebuild` interactively with
 - Hosted status confirmed the Amp provider connection after deployment.
 - Fly created remote builder app `fly-builder-humming-meadowstone-368` in
   `alex-ezell`, with Machine `d893239a01edd8`. It was stopped after the test;
-  its cache/resources are retained for later builds.
+  its cache/resources were initially retained for later builds (subsequently
+  removed in the clean-start reset below).
 - A real private Amp Orb returned:
 
   ```text
@@ -30,9 +31,9 @@ Ran `./setup --rebuild` interactively with
   The shell command exited 0. The disposable thread
   `T-01a1a32d-db24-709e-9fcc-68ff1e7e85c3` was then deleted for cleanup.
 
-The dispatcher remains hosted at
-[amp-orbs-alex-ezell](https://fly.io/apps/amp-orbs-alex-ezell). Its Sprite credential
-still expires February 1, 2027; this rebuild did not rotate credentials.
+At acceptance, the dispatcher was hosted as `amp-orbs-alex-ezell`. Its Sprite
+credential expired February 1, 2027; this rebuild did not rotate credentials.
+The installation and credential were subsequently removed as described below.
 
 ## Setup behavior
 
@@ -68,3 +69,87 @@ was published and no ui-ex files were changed.
 
 Final inspection confirmed the disposable smoke Sprite was absent, the dispatcher
 Machine was started, and the remote builder Machine was stopped.
+
+## Clean-start reset — November 3, 2026
+
+At the user's request, removed the test installation from `alex-ezell`:
+
+- Deleted the remaining disposable Amp smoke-test thread; the dispatcher deleted
+  its Sprite `mcp-amp-test-11ef38c52ffe4ca33d790e6317048cc3`.
+- Deleted the task's `mcp-amp-preflight` Sprite and revoked the dispatcher's
+  restricted Sprite credential. Verified both Sprites and the credential absent.
+- Destroyed `amp-orbs-alex-ezell` and the task-created remote builder
+  `fly-builder-humming-meadowstone-368`, including their Machines and volumes.
+  Verified both apps and volume endpoints returned not found.
+- Removed the local installation journal, generated configuration, and obsolete
+  smoke Orb ownership record. No saved installations remain in this checkout.
+
+Fly/Sprite logins and the existing Amp provider/token were preserved. The next
+`./setup --org alex-ezell` starts a new installation and creates its app, remote
+build, persistent volume, restricted credential, and dispatcher. Sprites are
+created when Amp requests Orbs. Setup does not create the Amp provider itself.
+No replacement infrastructure was deployed during this reset.
+
+## Fresh installation acceptance — November 3, 2026
+
+After the reset above, ran the actual interactive entry point:
+
+```sh
+DOCKER_HOST=unix:///tmp/fly-amp-no-docker.sock ./setup --org alex-ezell
+```
+
+There were no saved installation journals or existing project infrastructure.
+Accepted the generated app name and deployment review. Existing Fly/Sprite
+logins and the Amp provider token in `.env.local` were reused; this run therefore
+tests fresh infrastructure provisioning, not new-account signup or manual token
+entry. It required no manual cloud provisioning or local Docker daemon.
+
+- App: [amp-orbs-alex-ezell-2a6a6d90](https://fly.io/apps/amp-orbs-alex-ezell-2a6a6d90).
+- Organization: `alex-ezell`, confirmed through the Apps API for both the
+  dispatcher and its new remote builder `fly-builder-broken-skylark-759`.
+- Dispatcher Machine: `e820d1df645678`, started in `ord`, with no public services
+  or allocated public IPs.
+- New volume: `vol_re1lzndn17j0w634`, mounted by that Machine.
+- Image digest: `sha256:a63b7035da4275342f1c237058b79045d579bcf13ea2e7030ceee72a6d0f90f7`.
+- A newly issued restricted Sprite credential expires February 1, 2027.
+  Setup verified the connection to Amp before reporting success.
+- Builder Machine `811124b90e05e8` was stopped after the build; its cache remains
+  available. The dispatcher is left running and incurs hosting charges.
+
+Created a private Orb using Amp's `-ox --orb-provider fly-sprites-test` interface:
+[acceptance thread](https://ampcode.com/threads/T-01a1a348-14d4-7788-af68-6d5c9a99812e).
+Its actual remote `shell_command` result was:
+
+```text
+x86_64
+user
+fresh-setup-2a6a6d90
+```
+
+Exit status was 0. The dispatcher ownership record linked it to Sprite
+`mcp-amp-test-ded90f94694819d223a6fe341be11b44`, ID
+`6de1e825-dd90-4513-9360-d4f57093a6e0`, in `alex-ezell`.
+
+Archiving the thread completed pause and the Sprite subsequently reached `warm`
+through automatic idle sleep. Unarchiving and continuing resumed the same Sprite
+ID; reading the original marker returned `fresh-setup-2a6a6d90` as `user`, exit 0,
+without rewriting the file. The thread was archived again for inspection.
+This verifies warm resume, not cold resume. No explicit suspend API was used.
+
+Reran `./setup --org alex-ezell --app amp-orbs-alex-ezell-2a6a6d90 --yes` with the
+same unavailable Docker socket. It reused the installation, confirmed the Amp
+connection, and did not rebuild or redeploy. No source-code changes were needed
+for this acceptance run. Repository/project hooks were not exercised: these
+Orbs deliberately had no repository. This remains a custom Orb provider, not an
+Amp Runner.
+
+Created a separate disposable Orb, thread
+`T-01a1a34a-cd6c-7218-9525-78fd8f8aedef`, which printed
+`delete-test-2a6a6d90` with exit status 0. Deleting that thread triggered provider
+cleanup. Confirmed its Sprite `mcp-amp-test-4a7a3c6fa8e6e1c1ed722736a8043ad0`
+(ID `034de830-8ea1-4d37-9cda-10f7604b2c3a`) was absent and its dispatcher
+ownership record was removed.
+
+Final inspection confirmed the retained acceptance Sprite was `warm` with
+`paused: true`, the dispatcher Machine was `started` with connected status, and
+the builder Machine was `stopped`.
