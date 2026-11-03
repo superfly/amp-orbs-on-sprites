@@ -57,3 +57,14 @@ credentials and did not rebuild or redeploy.
 Plain reruns resume/check; `--rebuild` explicitly builds and replaces the image.
 Local tests verify that a failed rebuild preserves the previous active image,
 and that storage and runtime credentials are reused on successful rebuilds.
+
+## Clean clone verification
+
+Created a local Git commit and cloned it into a new temporary directory. The
+clone contained no `.env.local`, `.state`, `.tools`, or scratch work. `setup`
+retained its executable bit; `./setup --help` ran without npm installation.
+All 54 tests, syntax checks, and ShellCheck passed from that clone. No repository
+was published and no ui-ex files were changed.
+
+Final inspection confirmed the disposable smoke Sprite was absent, the dispatcher
+Machine was started, and the remote builder Machine was stopped.
