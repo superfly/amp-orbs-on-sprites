@@ -1,9 +1,8 @@
-# Hosted provisioning v1
+# Hosted setup and recovery
 
 `./setup` is the supported guided entry point for this self-deployable repository.
 It uses `setupFlow()` to collect choices, `runInstallation()` for exclusive local
 state, and the reusable `provision()` operation for infrastructure changes.
-No changes to ui-ex or a separate web setup service are required.
 
 ## Run from a checkout
 
@@ -148,6 +147,5 @@ also remains active; the installer never passes `--allow-multiple`.
 
 ## Deferred work
 
-Browser onboarding and ui-ex integration are intentionally out of scope. Runtime
-credential rotation and uninstall are not automated yet. Sprites 2 activation
+Runtime credential rotation and uninstall are not automated yet. Sprites 2 activation
 and account billing requirements still belong to Fly's normal account setup.

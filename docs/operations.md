@@ -1,4 +1,4 @@
-# Operations and source notes
+# Operations
 
 ## State and recovery
 
@@ -16,7 +16,7 @@ If creation reached Sprites but its response or state write was lost, the next
 job refuses ownership. An operator must verify the Orb/name/organization/Sprite-ID
 mapping and recover the matching record while the controller is stopped. Do not
 delete an unrecognized Sprite to clear the error. There is intentionally no
-automatic adoption command in this scaffold.
+automatic adoption command in this provider.
 
 The controller aborts at 270 seconds and exits by 280 seconds. Remote preparation
 has its own 220-second timeout plus a five-second kill grace. Requests have a
@@ -61,25 +61,13 @@ checked. The repository does not expose a debug HTTP endpoint.
 | [Services guide](https://docs.fly.io/sprites/concepts/services) | Supervision, sticky stop, warm/cold behavior, and streamed creation. |
 | [Lifecycle guide](https://docs.fly.io/sprites/concepts/lifecycle) | Warm memory preservation, cold memory loss, disk persistence, and natural idle sleep. |
 
-The earlier `docs.sprites.dev/api/dev-latest/…` links now redirect to the Fly.io
-Sprites API documentation. A bundled skill reference said there was no published
-OpenAPI document; the current docs link one, which was downloaded and inspected.
-The broad statement in the earlier conversation that sleep never preserves RAM
-was too strong: the current lifecycle guide explicitly distinguishes warm and
-cold. The older/general working guide still contains a blanket RAM-loss sentence;
-this project follows the more specific warm/cold lifecycle description.
-
-During initial scaffolding, no live Amp provider was registered, no cloud Sprite
-was created, and no GitHub repository, PR, or comment was published. The later
-[live-test progress](live-test.md) records the real Sprites 2 end-to-end checks and remaining limits.
-
 ## Sprites 2 contract
 
 This adapter targets the live `flyfs` runtime, not the published legacy service
 schema. Create uses the organization's existing runtime routing; an unexpected
 runtime is retained with its ownership record for safe cleanup and rejected
-before bootstrap. Do not advertise the launcher to every Fly account until
-Sprites 2 access/routing is available to that account.
+before bootstrap. Confirm that the organization routes creation to Sprites 2
+before installing this provider.
 
 The live guest exposes `sprite-env keep-awake --for`, `--release`, and `status`.
 The published `/v1/tasks` endpoint returns 404 here. Service creation uses

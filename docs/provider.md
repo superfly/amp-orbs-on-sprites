@@ -69,8 +69,9 @@ Quiet outbound connections do not reliably keep a Sprite awake. Bootstrap holds
 an expiring Sprites 2 `keep-awake` lease while Amp considers the Orb active. The wrapper renews it every
 30 seconds, attempts release on exit, and allows it to expire after two minutes
 if killed abruptly. Pause explicitly releases the lease after stopping the service,
-because group termination can interrupt shell cleanup. Without this hold, the live test repeatedly slept and Amp
-requested a new spawn roughly every minute. The guest command is `/.sprite/bin/sprite-env keep-awake`; the published
+because group termination can interrupt shell cleanup. The hold prevents a quiet
+connection from sleeping and causing repeated spawn requests while the Orb is active.
+The guest command is `/.sprite/bin/sprite-env keep-awake`; the published
 [Tasks API guide](https://docs.fly.io/sprites/keeping-sprites-running) describes
 the motivation, but its endpoints are absent on this target runtime.
 
@@ -104,8 +105,8 @@ for the same provider token; distributed coordination is not implemented.
 For direct dispatch/service-manager integration, set `SPRITE_ORG`,
 `SPRITES_PROVIDER_ID`, `SPRITES_STATE_DIR`, `SPRITES_NATIVE_BASE=1`,
 `SPRITES_AMP_BINARY_URL`, and `SPRITES_AMP_BINARY_SHA256`. Amp supplies its job
-variables. Custom adapter settings use `SPRITES_*`: the live provider did not
-forward our earlier custom `AMP_BINARY_*` variables.
+variables. Custom adapter settings use `SPRITES_*`; use those names rather than
+`AMP_BINARY_*` so Amp forwards the configuration to the adapter.
 
 ## Limits and security
 
