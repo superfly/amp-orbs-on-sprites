@@ -15,8 +15,8 @@ and pastes an Amp provider token. No local Docker or Amp CLI is required.
 
 The hidden token prompt restores terminal echo on completion or interruption.
 The token may also come from `AMP_ORB_PROVIDER_TOKEN` or a private ignored
-`.env.local`. No token is passed through command arguments or written to the
-installation journal. On rerun, a completed installation reuses its staged
+`.env.local`. No token is passed through command arguments, inherited by child processes
+(CLI installers, `fly`, `sprite`), or written to the installation journal. On rerun, a completed installation reuses its staged
 credentials without needing the original Amp token locally.
 
 `--org`, `--app`, `--provider`, and `--region` preselect choices. Region defaults

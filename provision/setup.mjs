@@ -12,6 +12,7 @@ import { ProviderError } from '../src/api.mjs';
 import { setupFlow } from './setup-flow.mjs';
 import { runInstallation } from './run.mjs';
 import { readSecret } from './terminal.mjs';
+import { loadSettings, childEnvironment } from './environment.mjs';
 const execute=promisify(execFile);
 const root=dirname(dirname(fileURLToPath(import.meta.url)));
 const options={};
@@ -26,7 +27,7 @@ Rerun to resume/check an installation. --rebuild deploys the current source.
 --yes accepts installation/deployment prompts; supply --org and a token in the
 environment for unattended new installations. Tokens are never command flags.`;
 
-async function interactive(binary,args,env=process.env) {
+async function interactive(binary,args,env=childEnvironment()) {
   await new Promise((accept,reject)=>{
     const child=spawn(binary,args,{cwd:root,env,stdio:'inherit'});
     child.once('error',()=>reject(new ProviderError(`Could not start ${binary}.`)));
@@ -75,7 +76,8 @@ try {
     else if(flag==='--handoff-local')options.handoff=true;
     else throw new ProviderError(help);
   }
-  if(existsSync(join(root,'.env.local')))process.loadEnvFile(join(root,'.env.local'));
+  // Keep the Amp token out of process.env: every CLI below would inherit it.
+  const local=await loadSettings(root);
   process.env.PATH=[join(root,'.tools','bin'),join(root,'.tools','fly','bin'),join(homedir(),'.fly','bin'),join(homedir(),'.local','bin'),process.env.PATH].join(delimiter);
   const platform=new FlyPlatform({root,directory:join(root,'.state'),progress:e=>ui.log(messages[e.step] || e.step)});
   async function installTool(name) {
@@ -90,7 +92,7 @@ try {
     const directory=join(root,'.tools');await mkdir(directory,{recursive:true,mode:0o700});
     const path=join(directory,`install-${name}.sh`);await writeFile(path,content,{mode:0o700});
     ui.log(`Installing ${name} from its official distribution…`);
-    await interactive('sh',[path,...(name==='sprite'?['--bin-dir',join(directory,'bin')]:[])],{...process.env,FLYCTL_INSTALL:join(directory,'fly')});
+    await interactive('sh',[path,...(name==='sprite'?['--bin-dir',join(directory,'bin')]:[])],{...childEnvironment(),FLYCTL_INSTALL:join(directory,'fly')});
     await execute(name,['--help'],{env:process.env,timeout:10_000});
   }
   const connection={
@@ -119,7 +121,7 @@ try {
     try {const state=JSON.parse(await readFile(join(base,name,'installation.json'),'utf8'));if(state.spec)installations.push(state);}
     catch(error){if(error.code!=='ENOENT' && error.code!=='ENOTDIR')throw new ProviderError('Cannot read saved installation state. Inspect .state/installations before continuing.');}
   }
-  const result=await setupFlow({options,env:process.env,ui,connection,installations,run:input=>runInstallation({root,...input,progress:e=>ui.log(messages[e.step] || e.step)})});
+  const result=await setupFlow({options,env:{...local.settings,AMP_ORB_PROVIDER_TOKEN:local.ampToken},ui,connection,installations,run:input=>runInstallation({root,...input,progress:e=>ui.log(messages[e.step] || e.step)})});
   if(result) {
     console.log(`\nReady: https://fly.io/apps/${result.spec.app}`);
     console.log('In Amp, start a thread and select the provider whose token you supplied. You can close this terminal.');

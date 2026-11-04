@@ -14,7 +14,7 @@
   "scripts": {
     "start": "node start.mjs",
     "test": "node --test",
-    "check": "node --check start.mjs && node --check dispatch.mjs && node --check src/provider.mjs && node --check src/api.mjs && node --check src/cli-api.mjs && node --check src/install-amp.mjs && bash -n bootstrap/prepare.sh && bash -n bootstrap/run.sh && node --check provision.mjs && node --check hosted.mjs && node --check src/provision.mjs && node --check provision/fly-platform.mjs && node --check provision/run.mjs && node --check provision/setup-flow.mjs && node --check provision/setup.mjs && sh -n setup && node --check provision/terminal.mjs",
+    "check": "node --check start.mjs && node --check dispatch.mjs && node --check src/provider.mjs && node --check src/api.mjs && node --check src/cli-api.mjs && node --check src/install-amp.mjs && bash -n bootstrap/prepare.sh && bash -n bootstrap/run.sh && node --check provision.mjs && node --check hosted.mjs && node --check src/provision.mjs && node --check provision/fly-platform.mjs && node --check provision/run.mjs && node --check provision/setup-flow.mjs && node --check provision/setup.mjs && sh -n setup && node --check provision/terminal.mjs && node --check provision/environment.mjs",
     "provision": "node provision.mjs",
     "setup": "node provision/setup.mjs"
   }

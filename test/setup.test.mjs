@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { setupFlow } from '../provision/setup-flow.mjs';
 import { FlyPlatform } from '../provision/fly-platform.mjs';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
+import { loadSettings, childEnvironment } from '../provision/environment.mjs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
@@ -68,4 +69,17 @@ test('remote builder never calls Docker and resolves a digest without registry r
   assert.ok(calls[0].includes('--remote-only'));assert.ok(calls[0].includes('--build-only'));assert.ok(calls[0].includes('--depot=false'));
   assert.ok(!calls.some(c=>c.includes('docker')||c.includes('--local-only')));
   const config=await readFile(join(directory,'build.toml'),'utf8');assert.ok(!config.includes('[build]'));assert.match(config,/amp-example/);
+});
+test('installer loads .env.local without exposing the Amp token to child processes',async t=>{
+  const root=await mkdtemp(join(tmpdir(),'amp-env-'));t.after(()=>rm(root,{recursive:true,force:true}));
+  await writeFile(join(root,'.env.local'),`AMP_ORB_PROVIDER_TOKEN=${token}\nSPRITES_PROVIDER_ID=amp-file\nORB_TOKEN=orb-secret\n`);
+  const env={PATH:process.env.PATH,SPRITES_PROVIDER_ID:'amp-shell',ORB_TOKEN:'orb-shell'};
+  const local=await loadSettings(root,env);
+  assert.equal(local.ampToken,token);assert.equal(local.settings.SPRITES_PROVIDER_ID,'amp-shell');
+  assert.ok(!('AMP_ORB_PROVIDER_TOKEN' in env));assert.ok(!('ORB_TOKEN' in env));
+  const shell={PATH:process.env.PATH,AMP_ORB_PROVIDER_TOKEN:token,ORB_TOKEN:'orb',KEEP:'yes'};
+  assert.deepEqual(childEnvironment(shell),{PATH:process.env.PATH,KEEP:'yes'});
+  const p=new FlyPlatform({root,directory:root,env:shell});
+  const seen=await p.command(process.execPath,['-e','console.log(JSON.stringify([process.env.AMP_ORB_PROVIDER_TOKEN,process.env.ORB_TOKEN,process.env.KEEP]))']);
+  assert.deepEqual(JSON.parse(seen),[null,null,'yes']);
 });
