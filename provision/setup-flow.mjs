@@ -1,10 +1,21 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { installationSpec } from '../src/provision.mjs';
+import { installationSpec, credentialStatus } from '../src/provision.mjs';
 import { ProviderError } from '../src/api.mjs';
 import { ampProviderSpec } from './amp-provider.mjs';
 
 const safe = text => String(text).replace(/[\x00-\x1f\x7f]/g, '').slice(0,160);
-export async function setupFlow({options={},env={},ui,connection,installations=[],run}) {
+// Operator-facing expiry line for the recorded Sprite credential; the second
+// element is a warning when rotation is due within ROTATION_WARNING_DAYS.
+export function credentialNotice(installation,now=Date.now()) {
+  const status=credentialStatus(installation?.credentialExpiresAt,now);
+  if(!status.known)return [];
+  const date=status.expiresAt.slice(0,10);
+  const rotate=`Rotate it with: ./setup --rotate-credential --app ${installation.spec.app}`;
+  if(status.expired)return [`Sprite credential expired ${date}; Orbs cannot spawn until it is rotated.`,rotate];
+  if(status.expiringSoon)return [`Sprite credential expires ${date} (${status.daysLeft} day${status.daysLeft===1?'':'s'} left).`,rotate];
+  return [`Sprite credential expires ${date}. Rotate it before then with ./setup --rotate-credential --app ${installation.spec.app}.`];
+}
+export async function setupFlow({options={},env={},ui,connection,installations=[],run,now=Date.now()}) {
   ui.log('Amp Orbs on Sprites — hosted setup');
   await connection.ensureTools();
   if (!await connection.flyConnected()) {
@@ -41,6 +52,23 @@ export async function setupFlow({options={},env={},ui,connection,installations=[
   const suggested=`amp-orbs-${org.slug.slice(0,24)}-${suffix}`;
   const app=options.app || existing?.spec.app || await ui.ask('Fly app name',suggested);
   const spec=installationSpec({org:org.slug,app,provider:options.provider || existing?.spec.provider || env.SPRITES_PROVIDER_ID || `amp-${suffix}`,region:options.region || existing?.spec.region || 'ord'});
+  if(options.rotate || options.destroy) {
+    if(!existing)throw new ProviderError(`No installation named ${safe(app)} is recorded for ${safe(org.slug)}. Pass --app with a recorded app name.`);
+    if(options.rotate) {
+      if(!existing.activated || !existing.secretsConfigured)throw new ProviderError('Finish the installation with ./setup before rotating its credential.');
+      for(const line of credentialNotice(existing,now))ui.log(line);
+      ui.log(`Rotate the Sprite credential for ${spec.app}: mint a new restricted 90-day credential, redeploy the dispatcher (it briefly restarts), then revoke the previous credential.`);
+      if(!options.yes && !await ui.confirm('Continue?')) {ui.log('Rotation cancelled. Nothing was changed.');return null;}
+      return run({spec,mode:'rotate'});
+    }
+    ui.log(`Destroy ${spec.app} in organization ${spec.org}: this deletes the Fly app with its Machine and volume, revokes the Sprite credential, and forgets the installation.`);
+    ui.log('It refuses while any Orb Sprite with this prefix remains. The Amp provider is not deleted; remove it in Amp Settings → Orbs afterwards.');
+    // --yes never substitutes for typing the app name.
+    const typed=await ui.ask(`Type the app name (${spec.app}) to confirm`);
+    if(typed!==spec.app) {ui.log('Destroy cancelled: the app name did not match. Nothing was changed.');return null;}
+    return run({spec,mode:'destroy'});
+  }
+  if(existing?.activated && existing.secretsConfigured)for(const line of credentialNotice(existing,now))ui.log(line);
   // Reusing staged credentials does not require retaining or retrieving a token.
   let ampToken=env.AMP_ORB_PROVIDER_TOKEN;
   if(ampToken && !/^aop_live_[A-Za-z0-9_-]+$/.test(ampToken))throw new ProviderError('AMP_ORB_PROVIDER_TOKEN is not a valid Amp provider token.');

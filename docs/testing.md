@@ -25,6 +25,9 @@ They cover:
   secret-store parsing, and credential-free completed-installation retries.
 - Failed or ambiguous creation, replaced default tokens, concurrent setup locks,
   and resuming after build failure without duplicating providers.
+- Credential rotation success and failure, revocation ordering, typed-name
+  teardown confirmation, refusal while Orb Sprites remain, the empty service
+  environment on pause, and the prefix check on both token-API branches.
 
 ## Continuous integration
 

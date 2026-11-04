@@ -1,11 +1,13 @@
 import { mkdir, readFile, writeFile, rename, rm, readdir } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { provision } from '../src/provision.mjs';
+import { provision, rotateCredential, destroyInstallation } from '../src/provision.mjs';
 import { FlyPlatform } from './fly-platform.mjs';
 import { ProviderError } from '../src/api.mjs';
 
-export async function runInstallation({root,spec,ampToken,ampProvider,resolveAmpProvider,handoff=false,rebuild=false,progress=()=>{},platform:providedPlatform}) {
+// mode: 'install' (default), 'rotate' (replace the Sprite credential), or
+// 'destroy' (tear down and forget the installation).
+export async function runInstallation({root,spec,ampToken,ampProvider,resolveAmpProvider,handoff=false,rebuild=false,mode='install',progress=()=>{},platform:providedPlatform}) {
   let lock;
   try {
   const directory=join(root,'.state','installations',spec.app);
@@ -19,6 +21,13 @@ export async function runInstallation({root,spec,ampToken,ampProvider,resolveAmp
     write:async value=>{await writeFile(path+'.tmp',JSON.stringify(value,null,2)+'\n',{mode:0o600});await rename(path+'.tmp',path);},
   };
   const platform=providedPlatform || new FlyPlatform({root,directory,progress});
+  if(mode==='rotate')return rotateCredential(spec,{platform,journal,progress});
+  if(mode==='destroy') {
+    const result=await destroyInstallation(spec,{platform,journal,progress});
+    // The lock lives inside the directory; remove the whole installation record.
+    await rm(directory,{recursive:true,force:true});lock=undefined;
+    return result;
+  }
   const saved=await journal.read();
   if(saved && JSON.stringify(saved.spec)!==JSON.stringify(spec))throw new ProviderError('Installation identity changed; use the original settings.');
   if(ampProvider && !ampToken && !saved?.secretsConfigured) {
