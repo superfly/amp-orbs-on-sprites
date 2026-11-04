@@ -27,9 +27,12 @@ test('installer verifies official checksums, caches the binary, and detects tamp
   const first=calls;
   await ensureAmp(directory,options);
   assert.equal(calls,first);
+  await ensureAmp(directory,{...options,refresh:true});
+  assert.ok(calls>first);
+  const refreshed=calls;
   await writeFile(result.binary,'tampered');
   await ensureAmp(directory,options);
-  assert.ok(calls>first);
+  assert.ok(calls>refreshed);
   assert.deepEqual(await readFile(result.binary),bytes);
 });
 

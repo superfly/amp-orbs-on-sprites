@@ -22,10 +22,11 @@ function fixture(){
   const run=async input=>{submitted=input;events.push('provision');return {spec:input.spec};};
   return {connection,ui,run,logs,events,get submitted(){return submitted;},connect:()=>{fly=true;sprites=true;}};
 }
-test('guides login, real organization selection, Sprite authorization, and hidden token entry',async()=>{
+test('guides login, organization selection, Sprite authorization, and automatic Amp provider creation',async()=>{
   const f=fixture();await setupFlow({...f,options:{provider:'amp-test'}});
-  assert.deepEqual(f.events,['tools','fly-login','sprites-example','token-prompt','provision']);
-  assert.deepEqual(f.submitted.spec,spec);assert.equal(f.submitted.ampToken,token);
+  assert.deepEqual(f.events,['tools','fly-login','sprites-example','provision']);
+  assert.deepEqual(f.submitted.spec,spec);assert.equal(f.submitted.ampToken,undefined);
+  assert.deepEqual(f.submitted.ampProvider,{name:spec.app,workspace:null});
   assert.ok(!f.logs.join('\n').includes(token));
 });
 test('signup is available to a new Fly user',async()=>{
@@ -46,6 +47,32 @@ test('unknown org is rejected before Sprite authorization or provisioning',async
 test('declining the cost review does not provision resources',async()=>{
   const f=fixture();f.ui.confirm=async()=>false;
   assert.equal(await setupFlow({...f}),null);assert.ok(!f.events.includes('provision'));
+});
+test('automatic workspace choice and unattended personal default reach the operation',async()=>{
+  const f=fixture();f.connect();
+  await setupFlow({...f,options:{org:'example',app:spec.app,'amp-provider':'team-orbs','amp-workspace':'team',yes:true}});
+  assert.deepEqual(f.submitted.ampProvider,{name:'team-orbs',workspace:'team'});
+  const g=fixture();g.connect();
+  g.ui.ask=async()=>{throw Error('Unexpected prompt in unattended setup');};
+  await setupFlow({...g,options:{org:'example',app:spec.app,yes:true}});
+  assert.equal(g.submitted.ampProvider.workspace,null);
+});
+test('pending automatic installation reuses recorded provider identity',async()=>{
+  const f=fixture();f.connect();const ampProvider={name:'saved-name',workspace:'team',phase:'created'};
+  await setupFlow({...f,options:{org:'example',app:spec.app,yes:true},installations:[{spec,ampProvider}]});
+  assert.deepEqual(f.submitted.ampProvider,ampProvider);
+});
+test('existing token remains supported, but cannot be combined with automatic creation flags',async()=>{
+  const f=fixture();f.connect();
+  await setupFlow({...f,options:{org:'example',app:spec.app,yes:true},env:{AMP_ORB_PROVIDER_TOKEN:token}});
+  assert.equal(f.submitted.ampToken,token);assert.equal(f.submitted.ampProvider,undefined);
+  await assert.rejects(setupFlow({...f,options:{org:'example','amp-provider':'new-provider'},env:{AMP_ORB_PROVIDER_TOKEN:token}}),/not both/);
+});
+test('completed automatic install does not need local credentials and refuses a changed provider',async()=>{
+  const f=fixture();f.connect();const saved={spec,secretsConfigured:true,activated:true,ampProvider:{name:'saved',workspace:null,phase:'created'}};
+  await setupFlow({...f,options:{org:'example',app:spec.app,yes:true},installations:[saved]});
+  assert.equal(f.submitted.ampToken,undefined);
+  await assert.rejects(setupFlow({...f,options:{org:'example',app:spec.app,'amp-provider':'different'},installations:[saved]}),/identity changed/);
 });
 test('the same token cannot launch another recorded installation',async()=>{
   const f=fixture();f.connect();

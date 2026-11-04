@@ -21,6 +21,10 @@ They cover:
 - Preparation argv/stdin, remote timeout, and exclusion of Amp credentials.
 - Verified Amp installation, cache integrity, activity-hold renewal and cleanup.
 - Sprites 2 service schema and refusal to bootstrap the legacy/default runtime.
+- Automatic personal/workspace provider creation, login, cached CLI upgrade,
+  secret-store parsing, and credential-free completed-installation retries.
+- Failed or ambiguous creation, replaced default tokens, concurrent setup locks,
+  and resuming after build failure without duplicating providers.
 
 ## Continuous integration
 

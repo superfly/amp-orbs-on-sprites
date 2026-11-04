@@ -26,16 +26,18 @@ Setup guides you through:
 1. Installing missing Fly and Sprite CLIs into this checkout.
 2. Signing in to Fly or creating an account, then choosing your organization.
 3. Authorizing Sprites for that organization if needed. **Sprites 2 access is required.**
-4. Creating an Orb provider in [Amp Settings → Orbs](https://ampcode.com/settings/orbs)
-   and pasting its token into a hidden prompt.
-5. Reviewing the destination and ongoing hosting costs, then deploying.
+4. Choosing an Amp provider name and personal or workspace scope.
+5. Reviewing the destination and ongoing hosting costs, then signing in to Amp
+   if needed. Setup creates the provider and transfers its token to Fly app secrets.
+6. Deploying and confirming the dispatcher is connected to Amp.
 
 The image builds on Fly's remote builder. You do **not** need Docker, npm
-packages, or a local Amp installation. Account sign-in opens the providers'
+packages, or a preinstalled Amp CLI. Setup downloads a checksum-verified Amp CLI
+into `.tools/setup-amp/` when creating a provider. Account sign-in opens the providers'
 normal login pages; there is no separate setup website.
 
-When setup reports ready, start a thread in Amp and select the provider you
-created. The dispatcher runs in your Fly account; you can close the terminal.
+When setup reports ready, start a thread in Amp and select the provider name it
+prints. The dispatcher runs in your Fly account; you can close the terminal.
 It uses one always-on 512 MB Machine and a 1 GB volume, plus Sprites for Orbs.
 Remote build and resource usage are billed to your selected organization.
 
@@ -53,17 +55,31 @@ After pulling code changes, rebuild and deploy with:
 The old dispatcher keeps running while the remote build completes. Deployment
 then replaces it on the same Machine/volume. A failed build leaves it running.
 
-For automation, provide `AMP_ORB_PROVIDER_TOKEN` through the environment for the
-first install and use explicit flags:
+For automation, sign into Fly, Sprites, and Amp beforehand, then use explicit flags:
 
 ```sh
 ./setup --org YOUR_ORG --app UNIQUE_APP_NAME --yes
 ```
 
+The Amp provider name defaults to the app name. With `--yes`, new providers are
+personal unless you pass `--amp-workspace NAMESPACE`. Use `--amp-provider NAME`
+to choose another Amp name; `--provider PREFIX` controls the separate Sprite prefix.
+Existing providers and CI can still use `AMP_ORB_PROVIDER_TOKEN` from the
+environment or `.env.local`; supplying it skips automatic provider creation.
+Do not combine a supplied token with `--amp-provider` or `--amp-workspace`.
+
+Setup reads only the provider-token entry from Amp's local secret store and
+transfers it through stdin. It does not copy your Amp account credentials or
+write the token to its journal. Amp stores one default provider token per server;
+avoid creating providers concurrently while setup runs. See
+[retry and recovery](docs/provisioning.md#retry-and-recovery) if another creation
+replaced that token before deployment finished.
+
 `./setup --help` lists all options. The advanced `npm run provision` client uses
 the same operation. See [provisioning and recovery](docs/provisioning.md) and the
 [hosted acceptance record](docs/hosted-live-test.md), plus the
-[guided setup acceptance record](docs/setup-live-test.md).
+[guided setup acceptance record](docs/setup-live-test.md) and
+[automatic provider acceptance record](docs/automatic-provider-live-test.md).
 
 ## Start a local development provider
 

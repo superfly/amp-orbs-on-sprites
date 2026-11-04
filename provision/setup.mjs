@@ -11,20 +11,24 @@ import { SpritesCLIAPI } from '../src/cli-api.mjs';
 import { ProviderError } from '../src/api.mjs';
 import { setupFlow } from './setup-flow.mjs';
 import { runInstallation } from './run.mjs';
-import { readSecret } from './terminal.mjs';
+import { AmpProviderSetup } from './amp-provider.mjs';
 const execute=promisify(execFile);
 const root=dirname(dirname(fileURLToPath(import.meta.url)));
 const options={};
 const help=`Usage: ./setup [--org SLUG] [--app NAME] [--provider PREFIX] [--region ord]
+               [--amp-provider NAME] [--amp-workspace NAMESPACE]
                [--rebuild] [--handoff-local] [--yes]
 
 Guides Fly/Sprites login and Amp provider setup, builds on Fly, and deploys one
-hosted dispatcher. Requires Node.js 22+. Missing Fly/Sprite CLIs can be installed
-in this checkout. No Docker or local Amp installation is required.
+hosted dispatcher. Requires Node.js 22+. Fly/Sprite CLIs and a verified Amp CLI
+can be installed in this checkout. No Docker or token copy/paste is required.
 
 Rerun to resume/check an installation. --rebuild deploys the current source.
---yes accepts installation/deployment prompts; supply --org and a token in the
-environment for unattended new installations. Tokens are never command flags.`;
+--provider sets the Sprite prefix; --amp-provider sets the Amp provider name.
+New providers are personal unless --amp-workspace is supplied or chosen.
+--yes accepts installation/deployment prompts; sign in beforehand for unattended
+setup. AMP_ORB_PROVIDER_TOKEN remains available for existing providers or CI.
+Tokens are never command flags.`;
 
 async function interactive(binary,args,env=process.env) {
   await new Promise((accept,reject)=>{
@@ -38,7 +42,7 @@ const ui={
   async ask(label,fallback) {
     if(!process.stdin.isTTY) {
       if(options.yes && fallback!==undefined)return fallback;
-      throw new ProviderError('Interactive setup needs a terminal. For automation, pass --yes --org SLUG --app NAME and set AMP_ORB_PROVIDER_TOKEN for a new installation.');
+      throw new ProviderError('Interactive setup needs a terminal. For automation, sign in first and pass --yes --org SLUG --app NAME.');
     }
     const rl=createInterface({input:process.stdin,output:process.stdout});
     try {return (await rl.question(`${label}${fallback===undefined?'':` [${fallback}]`}: `)).trim() || fallback || '';}
@@ -53,7 +57,6 @@ const ui={
     }
   },
   async confirm(label) {return /^(y|yes)$/i.test(await this.ask(`${label} [y/N]`));},
-  secret:readSecret,
 };
 
 const messages={
@@ -69,7 +72,7 @@ try {
   if(args.includes('--help') || args.includes('-h')) {console.log(help);process.exit(0);}
   for(let i=0;i<args.length;i++) {
     const flag=args[i];
-    if(['--org','--app','--provider','--region'].includes(flag) && args[i+1] && !args[i+1].startsWith('--'))options[flag.slice(2)]=args[++i];
+    if(['--org','--app','--provider','--region','--amp-provider','--amp-workspace'].includes(flag) && args[i+1] && !args[i+1].startsWith('--'))options[flag.slice(2)]=args[++i];
     else if(flag==='--yes')options.yes=true;
     else if(flag==='--rebuild')options.rebuild=true;
     else if(flag==='--handoff-local')options.handoff=true;
@@ -119,10 +122,11 @@ try {
     try {const state=JSON.parse(await readFile(join(base,name,'installation.json'),'utf8'));if(state.spec)installations.push(state);}
     catch(error){if(error.code!=='ENOENT' && error.code!=='ENOTDIR')throw new ProviderError('Cannot read saved installation state. Inspect .state/installations before continuing.');}
   }
-  const result=await setupFlow({options,env:process.env,ui,connection,installations,run:input=>runInstallation({root,...input,progress:e=>ui.log(messages[e.step] || e.step)})});
+  const amp=new AmpProviderSetup({root,interactive,log:message=>ui.log(message)});
+  const result=await setupFlow({options,env:process.env,ui,connection,installations,run:input=>runInstallation({root,...input,resolveAmpProvider:args=>amp.resolve(args),progress:e=>ui.log(messages[e.step] || e.step)})});
   if(result) {
     console.log(`\nReady: https://fly.io/apps/${result.spec.app}`);
-    console.log('In Amp, start a thread and select the provider whose token you supplied. You can close this terminal.');
+    console.log(`In Amp, start a thread and select ${result.ampProvider?.name || 'the provider whose token you supplied'}. You can close this terminal.`);
     console.log(`Sprite credential expires ${result.credentialExpiresAt}. Credential rotation is not automated yet.`);
   }
 }catch(error){console.error(error instanceof ProviderError?error.message:'Setup failed. Check your connection and saved installation state, then rerun ./setup.');process.exitCode=1;}
