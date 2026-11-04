@@ -5,7 +5,7 @@ import { provision } from '../src/provision.mjs';
 import { FlyPlatform } from './fly-platform.mjs';
 import { ProviderError } from '../src/api.mjs';
 
-export async function runInstallation({root,spec,ampToken,handoff=false,rebuild=false,progress=()=>{},platform:providedPlatform}) {
+export async function runInstallation({root,spec,ampToken,ampProvider,resolveAmpProvider,handoff=false,rebuild=false,progress=()=>{},platform:providedPlatform}) {
   let lock;
   try {
   const directory=join(root,'.state','installations',spec.app);
@@ -19,6 +19,15 @@ export async function runInstallation({root,spec,ampToken,handoff=false,rebuild=
     write:async value=>{await writeFile(path+'.tmp',JSON.stringify(value,null,2)+'\n',{mode:0o600});await rename(path+'.tmp',path);},
   };
   const platform=providedPlatform || new FlyPlatform({root,directory,progress});
+  const saved=await journal.read();
+  if(saved && JSON.stringify(saved.spec)!==JSON.stringify(spec))throw new ProviderError('Installation identity changed; use the original settings.');
+  if(ampProvider && !ampToken && !saved?.secretsConfigured) {
+    if(!resolveAmpProvider)throw new ProviderError('Automatic Amp provider setup is unavailable.');
+    // Check Fly access and name collisions before creating an Amp provider.
+    await platform.preflight(spec);
+    if(!saved?.appCreated && await platform.appExists(spec))throw new ProviderError('App already exists without a completed ownership record; inspect it before recovery');
+    ampToken=await resolveAmpProvider({spec,provider:ampProvider,journal});
+  }
   const initialRecords=[];
   const localRoot=resolve(process.env.SPRITES_STATE_DIR || join(root,'.state'));
   if(handoff) {

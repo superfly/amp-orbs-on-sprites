@@ -21,6 +21,10 @@ They cover:
 - Preparation argv/stdin, remote timeout, and exclusion of Amp credentials.
 - Verified Amp installation, cache integrity, activity-hold renewal and cleanup.
 - Sprites 2 service schema and refusal to bootstrap the legacy/default runtime.
+- Automatic personal/workspace provider creation, login, cached CLI upgrade,
+  secret-store parsing, and credential-free completed-installation retries.
+- Failed or ambiguous creation, replaced default tokens, concurrent setup locks,
+  and resuming after build failure without duplicating providers.
 
 ## Continuous integration
 
@@ -35,14 +39,12 @@ up-to-date branch, one approving review, and resolved review conversations.
 New commits dismiss stale approvals. Protection applies to administrators, and
 force pushes and branch deletion are disabled.
 
-These tests establish adapter behavior against fixtures. See [live-test.md](live-test.md)
-for the real Sprites 2 results; unlisted scenarios remain release gates.
-The downloaded public OpenAPI specification was also inspected for the create,
-service get/put/stop, and delete interfaces. The published service schema differs from the deployed Sprites 2 runtime.
-The adapter uses its `process`, `desired_state`, and `restart` fields and accepts
-JSON or final NDJSON service/Sprite confirmations before checking runtime state.
+These tests establish adapter behavior against fixtures; they do not prove
+compatibility with the live service. When changing API integration behavior,
+check the [Sprites 2 contract](operations.md#sprites-2-contract) and run the
+manual checks below against the target runtime.
 
-## Live acceptance sequence
+## Manual integration checks
 
 Use a dedicated provider, organization prefix, and disposable repository. Record
 Amp CLI version, Sprite CLI version/build, Sprite environment version, binary
@@ -55,8 +57,8 @@ digest, and the returned Sprite ID without recording tokens.
    Verify the Sprite ID is unchanged and there is one bootstrap service/process.
 3. **Pause:** Let Amp issue pause. Confirm bootstrap stops. Leave the Sprite alone;
    observe the control-plane state separately without exec, URL probes, or service
-   polling that would wake it. Record warm/cold status. Billing was not independently
-   measured by the smoke test.
+   polling that would wake it. Record warm/cold status; do not infer billing
+   behavior from runtime state alone.
 4. **Warm resume:** Send another thread message. Verify the same ID and marker
    file, a renewed connection, and no duplicate bootstrap process.
 5. **Cold resume:** Repeat after the platform has naturally reached cold sleep.
@@ -76,13 +78,12 @@ Exercise project snapshots only to verify the stated fallback, not to claim
 snapshot support. Test Terminal, portals, external agents, and Desktop separately
 if the intended workflow depends on them.
 
-## Remaining release gates
+## Additional coverage
 
 - Check that sticky service stop survives cold wake and disables reconnection.
 - Verify credential redaction in upstream Amp/Sprites logs as well as adapter logs.
-- Repeat timing on an entirely fresh Sprite; the observed first smoke spawn was
-  about ten seconds, comfortably below Amp's five-minute job limit.
-- Add recorded, sanitized live contract fixtures after the first smoke test.
+- Measure startup on a fresh Sprite and verify completion within Amp's job deadline.
+- Keep sanitized contract fixtures aligned with the runtime verified in manual tests.
 
 Do not start a second provider with the same token for tests. Offline tests do
 not justify deploying this as an unattended production provider.

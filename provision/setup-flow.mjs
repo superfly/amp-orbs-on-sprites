@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { installationSpec } from '../src/provision.mjs';
 import { ProviderError } from '../src/api.mjs';
+import { ampProviderSpec } from './amp-provider.mjs';
 
 const safe = text => String(text).replace(/[\x00-\x1f\x7f]/g, '').slice(0,160);
 export async function setupFlow({options={},env={},ui,connection,installations=[],run}) {
@@ -42,11 +43,19 @@ export async function setupFlow({options={},env={},ui,connection,installations=[
   const spec=installationSpec({org:org.slug,app,provider:options.provider || existing?.spec.provider || env.SPRITES_PROVIDER_ID || `amp-${suffix}`,region:options.region || existing?.spec.region || 'ord'});
   // Reusing staged credentials does not require retaining or retrieving a token.
   let ampToken=env.AMP_ORB_PROVIDER_TOKEN;
-  if(!ampToken && !existing?.secretsConfigured) {
-    ui.log('In https://ampcode.com/settings/orbs, create a provider and copy its token. You can sign up for Amp there if needed.');
-    ampToken=await ui.secret('Paste the Amp provider token (hidden): ');
+  if(ampToken && !/^aop_live_[A-Za-z0-9_-]+$/.test(ampToken))throw new ProviderError('AMP_ORB_PROVIDER_TOKEN is not a valid Amp provider token.');
+  if(ampToken && (options['amp-provider'] || options['amp-workspace']))throw new ProviderError('Use automatic Amp provider options or AMP_ORB_PROVIDER_TOKEN, not both.');
+  let ampProvider=existing?.ampProvider;
+  if(ampProvider && ((options['amp-provider'] && options['amp-provider']!==ampProvider.name) || (options['amp-workspace'] && options['amp-workspace']!==ampProvider.workspace)))throw new ProviderError('Amp provider identity changed; use the original name and workspace.');
+  if(!ampToken && !existing?.secretsConfigured && !ampProvider) {
+    if(existing)throw new ProviderError('This installation needs its original AMP_ORB_PROVIDER_TOKEN.');
+    if(options.handoff)throw new ProviderError('Local handoff requires the existing AMP_ORB_PROVIDER_TOKEN.');
+    const name=options['amp-provider'] || (options.yes ? app : await ui.ask('Amp provider name',app));
+    let workspace=options['amp-workspace'] || null;
+    if(!workspace && !options.yes && await ui.choose('Who should use this Amp provider?', ['Personal','An Amp workspace'])===1)workspace=await ui.ask('Amp workspace namespace');
+    ampProvider=ampProviderSpec({name,workspace});
   }
-  if(ampToken && !/^aop_live_[A-Za-z0-9_-]+$/.test(ampToken))throw new ProviderError('That is not an Amp provider token. Copy the aop_live_ token from Amp Settings → Orbs.');
+  if(existing?.secretsConfigured && !ampProvider && (options['amp-provider'] || options['amp-workspace']))throw new ProviderError('This installation already has an Amp provider; automatic creation options do not apply.');
   if(ampToken) {
     const fingerprint=createHash('sha256').update(ampToken).digest('hex');
     const other=installations.find(i=>i.fingerprint===fingerprint && (i.spec.app!==spec.app || i.spec.org!==spec.org));
@@ -55,7 +64,8 @@ export async function setupFlow({options={},env={},ui,connection,installations=[
   const action=existing?.activated ? options.rebuild?'Rebuild and replace the existing dispatcher':'Check the existing dispatcher' : 'Deploy the dispatcher';
   ui.log(`${action}: ${spec.app}, organization ${spec.org}, region ${spec.region}.`);
   if(!existing?.activated)ui.log('This creates one always-on 512 MB Machine and a 1 GB volume. Fly hosting, remote builds, and Sprite usage are billed to this organization.');
+  if(ampProvider && !existing?.secretsConfigured)ui.log(`${existing?.ampProvider?'Reuse':'Create'} Amp provider ${safe(ampProvider.name)} (${ampProvider.workspace?`workspace ${safe(ampProvider.workspace)}`:'personal'}). Its token is transferred automatically to Fly app secrets.`);
   if(options.rebuild)ui.log('The build runs on Fly. The existing dispatcher will briefly restart when the new image is deployed.');
   if(!options.yes && !await ui.confirm('Continue?')) {ui.log('Setup cancelled. No dispatcher resources were changed.');return null;}
-  return run({spec,ampToken,handoff:!!options.handoff,rebuild:!!options.rebuild});
+  return run({spec,ampToken,ampProvider,handoff:!!options.handoff,rebuild:!!options.rebuild});
 }

@@ -1,9 +1,8 @@
-# Hosted provisioning v1
+# Hosted setup and recovery
 
 `./setup` is the supported guided entry point for this self-deployable repository.
 It uses `setupFlow()` to collect choices, `runInstallation()` for exclusive local
 state, and the reusable `provision()` operation for infrastructure changes.
-No changes to ui-ex or a separate web setup service are required.
 
 ## Run from a checkout
 
@@ -11,20 +10,36 @@ Requires macOS/Linux (or WSL), Node.js 22+, and Sprites 2 access. Run `./setup`.
 Missing Fly and Sprite CLIs can be installed into `.tools/` using their official
 installers, without editing shell profiles. The user signs in or signs up with
 Fly, selects an organization using its real slug, authorizes Sprites if needed,
-and pastes an Amp provider token. No local Docker or Amp CLI is required.
+and chooses an Amp provider name and personal/workspace scope. After the review,
+setup installs a checksum-verified Amp CLI into `.tools/setup-amp/`, guides normal
+Amp login if needed, and runs `amp orb provider create NAME` (with
+`--workspace NAMESPACE` for workspace providers). No local Docker or preinstalled
+Amp CLI is required. A cached CLI without provider creation is refreshed.
 
-The hidden token prompt restores terminal echo on completion or interruption.
-The token may also come from `AMP_ORB_PROVIDER_TOKEN` or a private ignored
-`.env.local`. No token is passed through command arguments, inherited by child processes
-(CLI installers, `fly`, `sprite`), or written to the installation journal. On rerun, a completed installation reuses its staged
+Setup reads `orb-provider-token@https://ampcode.com/` from Amp's secret store
+immediately after creation and imports it as the dispatcher's
+`AMP_ORB_PROVIDER_TOKEN` app secret through stdin. It does not print creation
+output, tokens, or raw CLI errors, and does not transfer account login credentials.
+The secret store lives at `~/.local/share/amp/secrets.json` on macOS, or
+`${XDG_DATA_HOME:-$HOME/.local/share}/amp/secrets.json` on Linux. This reader is
+coupled to Amp's observed CLI storage contract; unexpected formats fail closed.
+Automatic creation currently targets `https://ampcode.com` only.
+
+For existing providers, the token may still come from `AMP_ORB_PROVIDER_TOKEN`
+or a private ignored `.env.local`, which skips automatic creation. No token is
+passed through command arguments, inherited by child processes (CLI installers,
+`fly`, `sprite`, `amp`), or written to the installation journal. On rerun, a completed installation reuses its staged
 credentials without needing the original Amp token locally.
 
 `--org`, `--app`, `--provider`, and `--region` preselect choices. Region defaults
 to `ord`; a new installation gets a unique suggested app name and Sprite prefix.
 `--yes` accepts installation/deployment prompts but does not bypass authentication
 or ambiguous organization/installation choices. For unattended runs, supply
-`--org` and `--app`, authenticate beforehand, and supply the Amp token in the
-environment for a new installation.
+`--org` and `--app` and authenticate beforehand. `--amp-provider` sets the Amp
+provider name (default: app name); `--amp-workspace` selects an Amp workspace.
+`--provider` remains the separate Sprite prefix. Under `--yes`, automatic creation
+defaults to a personal provider. Automatic creation flags cannot be combined with
+an explicit token. Existing installations retain their recorded provider identity.
 
 `./setup --rebuild` builds the current checkout on Fly and replaces the existing
 dispatcher. Plain reruns verify/resume; they do not automatically rebuild. Use
@@ -79,6 +94,26 @@ The caller holds an exclusive operation lock. The local client uses
 The journal contains installation identity, a provider-token fingerprint, resource
 IDs, image digest, credential expiry, and completed steps, never secret values.
 
+Automatic creation adds the Amp provider's name, workspace, and creation phase.
+It journals intent before calling Amp, then the token fingerprint after confirmed
+creation. A deployment failure can reuse the matching token from Amp's store;
+after Fly secrets are staged, neither the local token nor an Amp login is needed
+to resume. Creating another provider replaces Amp's one default saved token. If
+that happens before staging, setup refuses the mismatch: restore the original
+provider token through `AMP_ORB_PROVIDER_TOKEN` to resume, or inspect and clean up
+the incomplete installation before starting over. Setup does not rotate tokens
+or change the selected provider automatically.
+
+A failed/timed-out create or a crash before fingerprint capture leaves phase
+`creating`; reruns stop rather than risk creating a duplicate or using a stale
+token. Inspect Amp Settings → Orbs and the installation journal to establish
+whether creation succeeded before manual recovery. Do not simply delete the
+journal and retry. Setup also holds an exclusive
+`amp-orbs-on-sprites-provider.lock` directory beside the secret store while
+creating/reading. Only this installer honors that lock; avoid concurrent provider
+creation through Amp's CLI or agent. After a hard crash, verify no installer is
+running before removing this lock.
+
 Rerun the same command after an ordinary failure. Completed resources and staged
 credentials are reused; a verification retry does not redeploy. Deployment uses
 an immediate replacement and explicitly disables spare Machines. The runtime
@@ -110,8 +145,50 @@ Only one provider process may use the Amp token. The installer cannot discover
 arbitrary controllers on other computers. Amp's own duplicate-provider handling
 also remains active; the installer never passes `--allow-multiple`.
 
+## Credential expiry
+
+The dispatcher's Sprite credential expires 90 days after it is issued. Setup
+prints the date and records it as `credentialExpiresAt` in `installation.json`.
+After expiry, Orbs stop spawning until a new credential is installed. Until
+rotation is automated, rotate manually before expiry with the original
+`AMP_ORB_PROVIDER_TOKEN` available in the environment:
+
+1. Edit `.state/installations/APP/installation.json`: remove `secretsConfigured`,
+   `credentialExpiresAt`, and `credentialTokenId`, and set `activated` to `false`.
+2. Run `./setup --app APP`. It mints a new restricted credential, restages both
+   secrets, and redeploys the same Machine.
+3. If the old `credentialTokenId` was recorded, revoke it:
+
+   ```sh
+   sprite -o ORG api /v1/tokens/OLD_TOKEN_ID -- --request DELETE
+   ```
+
+## Remove an installation
+
+Uninstall is not automated yet. To remove everything by hand:
+
+1. In Amp, delete (not just archive) every thread that used the provider so the
+   dispatcher deletes their Sprites. Confirm none remain, using `spec.provider`
+   from `installation.json` as the prefix:
+
+   ```sh
+   sprite -o ORG list --prefix PREFIX-
+   ```
+
+2. Destroy the Fly app, which removes its Machine and volume:
+
+   ```sh
+   fly apps destroy APP --yes
+   ```
+
+3. Revoke the Sprite credential if `credentialTokenId` is recorded (see above);
+   otherwise it expires on its own.
+4. Delete the provider in [Amp Settings → Orbs](https://ampcode.com/settings/orbs),
+   or keep it to reinstall later with its token.
+5. Remove `.state/installations/APP`. The `fly-builder-*` app Fly created for
+   remote builds can also be destroyed.
+
 ## Deferred work
 
-Browser onboarding and ui-ex integration are intentionally out of scope. Runtime
-credential rotation and uninstall are not automated yet. Sprites 2 activation
+Runtime credential rotation and uninstall are not automated yet. Sprites 2 activation
 and account billing requirements still belong to Fly's normal account setup.

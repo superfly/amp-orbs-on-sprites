@@ -6,7 +6,7 @@ import { ProviderError } from './api.mjs';
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 export async function ensureAmp(directory, {
-  fetchImpl = fetch, platform = process.platform, arch = process.arch, version, log = console.log,
+  fetchImpl = fetch, platform = process.platform, arch = process.arch, version, refresh = false, log = console.log,
 } = {}) {
   const target = `${platform === 'darwin' ? 'darwin' : 'linux'}-${arch === 'arm64' ? 'arm64' : 'x64'}`;
   if (!['darwin', 'linux'].includes(platform) || !['arm64', 'x64'].includes(arch)) {
@@ -16,7 +16,7 @@ export async function ensureAmp(directory, {
   const manifest = join(directory, 'release.json');
   try {
     const cached = JSON.parse(await readFile(manifest, 'utf8'));
-    if (cached.target === target && (!version || cached.version === version)
+    if (!refresh && cached.target === target && (!version || cached.version === version)
         && sha256(await readFile(binary)) === cached.sha256) return { ...cached, binary };
   } catch { /* Install missing or invalid cached binary. */ }
   await mkdir(directory, { recursive: true, mode: 0o700 });
