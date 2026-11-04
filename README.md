@@ -106,4 +106,4 @@ out of the report.
 - [Setup options and recovery](docs/provisioning.md)
 - [Provider internals and local development](docs/provider.md)
 - [Operations](docs/operations.md)
-- [Testing](docs/testing.md) and [live setup results](docs/automatic-provider-live-test.md)
+- [Testing](docs/testing.md)
