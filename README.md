@@ -1,19 +1,23 @@
 # Amp Orbs on Sprites
 
-Run your own Amp Orb provider on [Fly.io](https://fly.io) Sprites. Clone
-`amp-orbs-on-sprites`, run `./setup`, and start coding in Amp.
+Run [Amp](https://ampcode.com) Orbs on persistent [Fly.io](https://fly.io) Sprites
+in your own account. Each Orb gets its own Sprite for tools and working files.
+Once set up, you can use Amp and close your laptop—the provider runs on Fly.io.
 
-Setup deploys a hosted dispatcher in your Fly.io account. It creates a persistent
-Sprite for each Orb and manages its lifecycle. This is an experimental **Sprites 2**
-integration and an **Orb provider, not an Amp Runner**.
+## Before you start
 
-Fresh setup, remote command execution, file persistence, pause, warm sleep,
-resume on the same Sprite, and deletion have passed live tests. See the
-[setup acceptance record](docs/setup-live-test.md) for evidence and remaining limits.
+You'll need:
 
-## Clone and run
+- macOS or Linux, including Windows through WSL.
+- Git and **Node.js 22 or newer**.
+- A Fly.io account and an organization with **Sprites 2 enabled**. The original
+  Sprites runtime is not supported by this integration.
+- An Amp account. Setup will guide you through signing in if needed.
 
-On macOS or Linux (including WSL), install **Node.js 22 or newer**, then run:
+This integration is experimental. Check the [current limitations](#current-limitations)
+before relying on it for your workflow.
+
+## Set up
 
 ```sh
 git clone https://github.com/superfly/amp-orbs-on-sprites.git
@@ -21,179 +25,85 @@ cd amp-orbs-on-sprites
 ./setup
 ```
 
-Setup guides you through:
+Follow the prompts to:
 
-1. Installing missing Fly and Sprite CLIs into this checkout.
-2. Signing in to Fly or creating an account, then choosing your organization.
-3. Authorizing Sprites for that organization if needed. **Sprites 2 access is required.**
-4. Creating an Orb provider in [Amp Settings → Orbs](https://ampcode.com/settings/orbs)
-   and pasting its token into a hidden prompt.
-5. Reviewing the destination and ongoing hosting costs, then deploying.
+1. Connect your Fly.io account, choose an organization, and authorize Sprites.
+2. Choose a provider name and whether it belongs to you or an Amp workspace.
+3. Review the deployment and costs, then sign into Amp if needed.
 
-The image builds on Fly's remote builder. You do **not** need Docker, npm
-packages, or a local Amp installation. Account sign-in opens the providers'
-normal login pages; there is no separate setup website.
+Setup installs the tools it needs, creates the Amp provider, transfers its
+credentials, and deploys the service that manages your Orbs. You don't need
+Docker, an existing Amp CLI installation, or any token copying and pasting.
 
-When setup reports ready, start a thread in Amp and select the provider you
-created. The dispatcher runs in your Fly account; you can close the terminal.
-It uses one always-on 512 MB Machine and a 1 GB volume, plus Sprites for Orbs.
-Remote build and resource usage are billed to your selected organization.
+Wait for **“Dispatcher connected to Amp.”** Setup then prints your Fly.io app
+link and the provider name to select in Amp. You can close the terminal.
 
-Rerun `./setup` to resume interrupted setup or check an existing installation.
-Completed installations reuse their stored credentials without asking for the
-Amp token again. Keep `.state/` locally: it records resource ownership and makes
-retries safe. Tokens are not saved there.
+## Use your Orbs
 
-After pulling code changes, rebuild and deploy with:
+Start a thread in Amp and select the provider name printed by setup.
+
+- **Work:** Amp runs tools and keeps working files on that thread's Sprite.
+- **Pause:** Archive the thread to pause its Orb and let the Sprite sleep.
+- **Resume:** Unarchive and continue the thread to use its saved files.
+- **Delete:** Deleting the thread removes its Sprite and the files on it.
+
+This is an **Amp Orb provider**. For running Amp in an existing environment,
+see [Amp Runners](https://ampcode.com/docs/cli/runners).
+
+## What runs in your account
+
+Setup creates one always-on **512 MB Fly Machine** and a **1 GB volume** to run
+the dispatcher, plus a Sprite for each Orb you create. Builds run remotely on
+Fly.io. Hosting, storage, build resources, and Sprite usage are billed to the
+organization you choose.
+
+The dispatcher keeps running when your laptop is off. Archiving an Orb lets
+its Sprite sleep; it does not stop the dispatcher. Deleting the dispatcher alone
+does not remove its Sprites.
+
+## Check or update your installation
+
+Keep this checkout, including its hidden `.state/` directory. Setup uses it to
+recognize your installation and resume safely.
+
+To check the connection or resume an interrupted setup, run:
 
 ```sh
+./setup
+```
+
+To deploy a newer version:
+
+```sh
+git pull --ff-only
 ./setup --rebuild
 ```
 
-The old dispatcher keeps running while the remote build completes. Deployment
-then replaces it on the same Machine/volume. A failed build leaves it running.
+Rebuilding keeps the existing storage and credentials. The dispatcher briefly
+restarts when the new version is deployed.
 
-For automation, provide `AMP_ORB_PROVIDER_TOKEN` through the environment for the
-first install and use explicit flags:
+For setup options, run `./setup --help`. To use an existing provider, automate
+setup, or recover from a failure, see [setup and recovery](docs/provisioning.md).
+If setup reports an ambiguous creation or ownership problem, follow that guide
+before retrying or deleting saved state.
 
-```sh
-./setup --org YOUR_ORG --app UNIQUE_APP_NAME --yes
-```
+## Current limitations
 
-`./setup --help` lists all options. The advanced `npm run provision` client uses
-the same operation. See [provisioning and recovery](docs/provisioning.md) and the
-[hosted acceptance record](docs/hosted-live-test.md), plus the
-[guided setup acceptance record](docs/setup-live-test.md).
+- Sprites 2 access is required; setup does not enable it for your organization.
+- Custom container images and project snapshots are not supported.
+- Desktop, portals, repository checkout, and cold resume have not yet been
+  verified end to end. Command execution, file persistence, warm sleep/resume,
+  and deletion have been tested with real Orbs.
+- Credential renewal and uninstall are not automated. Setup reports when the
+  Sprite credential expires; plan to renew it before then.
 
-## Start a local development provider
+## Help and development
 
-Prerequisites: an organization with Sprites 2 enabled, Node.js 22+, and the [Sprite CLI](https://docs.fly.io/sprites/cli/installation).
-There are no npm dependencies to install.
+For setup problems, [open an issue](https://github.com/superfly/amp-orbs-on-sprites/issues)
+with the step that failed and the error message. Keep tokens and credentials
+out of the report.
 
-1. Sign into the target Sprites organization if you have not already:
-
-   ```sh
-   sprite login -o YOUR_ORG
-   ```
-
-2. In [Amp Settings → Orbs](https://ampcode.com/settings/orbs), create a provider.
-   Save its token in a private `.env.local` file in this repository:
-
-   ```dotenv
-   AMP_ORB_PROVIDER_TOKEN=your-provider-token
-   ```
-
-   Keep the token out of shell history and Git. `.env.local` is ignored by Git;
-   restrict its permissions with `chmod 600 .env.local`.
-
-3. Start the controller:
-
-   ```sh
-   npm start -- --org YOUR_ORG
-   ```
-
-The launcher verifies Sprites access, downloads and checksum-verifies Amp from
-its official release source, caches it in `.tools/`, selects the matching Linux
-binary, and starts the provider. It reuses the Sprite CLI's saved login; you do
-not need to extract or copy a Sprites token. The organization is always explicit.
-
-Keep the controller running. Select your provider in Amp's new-thread composer.
-The controller's provider token is sufficient; a separate Amp account login is
-needed only if you want to create/control threads through the Amp CLI here.
-
-For CLI testing:
-
-```sh
-.tools/amp login
-.tools/amp -ox 'Run uname -m and id -un' --orb-provider YOUR_PROVIDER_NAME
-```
-
-To continue an Orb remotely, keep `-ox`:
-
-```sh
-.tools/amp threads continue THREAD_ID -ox 'Read the file we created earlier'
-```
-
-Using plain `-x` to continue selects local execution. Do not use it to validate
-this provider. A returned thread URL means the job was submitted; inspect the
-thread's tool results to establish success.
-
-## Lifecycle
-
-| Job | Behavior |
-| --- | --- |
-| `spawn` | Create/reuse the owned Sprite, prepare Amp, and start supervised bootstrap with fresh credentials. |
-| `pause` | Persistently stop bootstrap, release its activity hold, and leave the disk for natural idle sleep. |
-| `delete` | Delete the owned Sprite, wait for disappearance, and remove its ownership record. |
-
-Quiet outbound connections do not reliably keep a Sprite awake. Bootstrap holds
-an expiring Sprites 2 `keep-awake` lease while Amp considers the Orb active. The wrapper renews it every
-30 seconds, attempts release on exit, and allows it to expire after two minutes
-if killed abruptly. Pause explicitly releases the lease after stopping the service,
-because group termination can interrupt shell cleanup. Without this hold, the live test repeatedly slept and Amp
-requested a new spawn roughly every minute. The guest command is `/.sprite/bin/sprite-env keep-awake`; the published
-[Tasks API guide](https://docs.fly.io/sprites/keeping-sprites-running) describes
-the motivation, but its endpoints are absent on this target runtime.
-
-Pause does not call a VM suspend API. Other workload activity can still delay
-sleep. Warm sleep preserves process memory; cold sleep does not. Disk persists
-in both cases. [Lifecycle](https://docs.fly.io/sprites/concepts/lifecycle).
-
-To pause a test Orb, archive its thread in Amp (or use
-`.tools/amp threads archive THREAD_ID`). Pause active Orbs before stopping the
-controller with Ctrl-C; stopping the controller alone does not stop their Sprites.
-
-## Configuration
-
-The start command reads `.env.local` and the process environment:
-
-| Variable | Purpose |
-| --- | --- |
-| `AMP_ORB_PROVIDER_TOKEN` | Required Amp provider credential. |
-| `SPRITES_PROVIDER_ID` | Stable Sprite prefix; defaults to `mcp-amp`. Use a distinct value for each provider in an org. |
-| `SPRITES_STATE_DIR` | Persistent controller state; defaults to this repository's `.state/`. |
-| `SPRITE_BIN` | Sprite executable path; defaults to `sprite` on PATH. |
-| `SPRITE_TOKEN` | Optional for unattended hosts; otherwise use the saved Sprite login. |
-| `SPRITES_AMP_VERSION` | Optional exact Amp release. Otherwise install latest once and reuse the verified cache. |
-
-Hosted setup generates a provider prefix unless you supply one. Do not change a
-provider's prefix or lose its state directory while it owns Orbs. Records bind
-Orb IDs to Sprite IDs and organizations; mismatches
-fail closed. One local controller runs per prefix. Do not run independent hosts
-for the same provider token; distributed coordination is not implemented.
-
-For direct dispatch/service-manager integration, set `SPRITE_ORG`,
-`SPRITES_PROVIDER_ID`, `SPRITES_STATE_DIR`, `SPRITES_NATIVE_BASE=1`,
-`SPRITES_AMP_BINARY_URL`, and `SPRITES_AMP_BINARY_SHA256`. Amp supplies its job
-variables. Custom adapter settings use `SPRITES_*`: the live provider did not
-forward our earlier custom `AMP_BINARY_*` variables.
-
-## Limits and security
-
-- Sprites 2 (`runtime_kind=flyfs`) only; the existing default runtime is rejected.
-  The organization must already route creation to Sprites 2. Native Sprite base only. `ORB_IMAGE` is acknowledged but not applied. Project
-  snapshots (`ORB_SNAPSHOT_ID`) are unsupported; new Orbs run ordinary setup.
-- The launcher currently selects Linux x64 for Sprites. Desktop, portals,
-  repository checkout, and cold-wake behavior still need dedicated acceptance tests.
-- This dedicated Sprite's global keep-awake lease is owned by bootstrap; other
-  applications must not independently renew/release that same lease.
-- An active activity hold keeps compute running until Amp issues pause. A missing
-  pause or stuck provider job must be investigated; the wrapper is not a separate
-  idle-timeout policy.
-- `npm start` runs a local development controller. `npm run provision` deploys
-  the hosted controller; do not run both with the same provider token.
-- Org/provider credentials stay on the controller. Only the short-lived Orb token
-  and Amp URL enter the Sprite service. Its environment is persisted sensitive
-  configuration and may appear in snapshots/backups; restrict access.
-- API bodies and CLI stderr are not printed by the adapter. Requests containing
-  credentials use stdin, not process arguments. Bootstrap logs remain sensitive.
-- Failed preparation retains the Sprite for retry. Ambiguous creation requires
-  inspection rather than automatic adoption; deletion never targets an unowned ID.
-
-Amp's agent loop and inference stay on Amp; the Sprite hosts its tools and
-working files. A [Runner](https://ampcode.com/docs/cli/runners) serves threads in
-an existing environment and does not use this provisioning lifecycle.
-
-Run `npm test`, `npm run check`, and `shellcheck bootstrap/*.sh` for local checks.
-See [testing](docs/testing.md) and [operations](docs/operations.md) for the full
-verification and recovery guidance.
+- [Setup options and recovery](docs/provisioning.md)
+- [Provider internals and local development](docs/provider.md)
+- [Operations](docs/operations.md)
+- [Testing](docs/testing.md)

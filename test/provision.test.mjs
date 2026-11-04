@@ -53,6 +53,16 @@ test('secret upload failure revokes the new credential and never activates',asyn
   await assert.rejects(provision(input,f),/upload failed/);
   assert.ok(f.calls.includes('revoke'));assert.ok(!f.calls.includes('deploy'));
 });
+test('Fly secret transfer uses stdin and only the dispatcher credentials',async()=>{
+  const {FlyPlatform}=await import('../provision/fly-platform.mjs');
+  const p=new FlyPlatform({root:'.',directory:'.'});let captured;
+  p.fly=async(args,options)=>{captured={args,options};};
+  await p.setSecrets(input,{ampToken:'aop_live_transfer',spriteToken:'sprite-secret',initialRecords:[],accountToken:'must-not-transfer'});
+  assert.deepEqual(captured.args,['secrets','import','--app',input.app,'--stage']);
+  assert.match(captured.options.input,/AMP_ORB_PROVIDER_TOKEN=aop_live_transfer\n/);
+  assert.match(captured.options.input,/SPRITE_TOKEN=sprite-secret\n/);
+  assert.ok(!captured.options.input.includes('must-not-transfer'));
+});
 test('changed installation identity or lost volume refuses further mutations',async()=>{
   const f=fixture();await provision(input,f);
   await assert.rejects(provision({...input,org:'different'},f),/identity changed/);
