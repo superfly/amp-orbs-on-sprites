@@ -27,8 +27,8 @@ Automatic creation currently targets `https://ampcode.com` only.
 
 For existing providers, the token may still come from `AMP_ORB_PROVIDER_TOKEN`
 or a private ignored `.env.local`, which skips automatic creation. No token is
-passed through command arguments or written to the
-installation journal. On rerun, a completed installation reuses its staged
+passed through command arguments, inherited by child processes (CLI installers,
+`fly`, `sprite`, `amp`), or written to the installation journal. On rerun, a completed installation reuses its staged
 credentials without needing the original Amp token locally.
 
 `--org`, `--app`, `--provider`, and `--region` preselect choices. Region defaults
@@ -144,6 +144,49 @@ the local controller stays stopped; inspect the hosted app before restarting it.
 Only one provider process may use the Amp token. The installer cannot discover
 arbitrary controllers on other computers. Amp's own duplicate-provider handling
 also remains active; the installer never passes `--allow-multiple`.
+
+## Credential expiry
+
+The dispatcher's Sprite credential expires 90 days after it is issued. Setup
+prints the date and records it as `credentialExpiresAt` in `installation.json`.
+After expiry, Orbs stop spawning until a new credential is installed. Until
+rotation is automated, rotate manually before expiry with the original
+`AMP_ORB_PROVIDER_TOKEN` available in the environment:
+
+1. Edit `.state/installations/APP/installation.json`: remove `secretsConfigured`,
+   `credentialExpiresAt`, and `credentialTokenId`, and set `activated` to `false`.
+2. Run `./setup --app APP`. It mints a new restricted credential, restages both
+   secrets, and redeploys the same Machine.
+3. If the old `credentialTokenId` was recorded, revoke it:
+
+   ```sh
+   sprite -o ORG api /v1/tokens/OLD_TOKEN_ID -- --request DELETE
+   ```
+
+## Remove an installation
+
+Uninstall is not automated yet. To remove everything by hand:
+
+1. In Amp, delete (not just archive) every thread that used the provider so the
+   dispatcher deletes their Sprites. Confirm none remain, using `spec.provider`
+   from `installation.json` as the prefix:
+
+   ```sh
+   sprite -o ORG list --prefix PREFIX-
+   ```
+
+2. Destroy the Fly app, which removes its Machine and volume:
+
+   ```sh
+   fly apps destroy APP --yes
+   ```
+
+3. Revoke the Sprite credential if `credentialTokenId` is recorded (see above);
+   otherwise it expires on its own.
+4. Delete the provider in [Amp Settings → Orbs](https://ampcode.com/settings/orbs),
+   or keep it to reinstall later with its token.
+5. Remove `.state/installations/APP`. The `fly-builder-*` app Fly created for
+   remote builds can also be destroyed.
 
 ## Deferred work
 
