@@ -44,6 +44,10 @@ an explicit token. Existing installations retain their recorded provider identit
 `./setup --rebuild` builds the current checkout on Fly and replaces the existing
 dispatcher. Plain reruns verify/resume; they do not automatically rebuild. Use
 `--handoff-local` only when moving an existing local provider as described below.
+`./setup --rotate-credential` and `./setup --destroy` act on a recorded
+installation selected with `--app` (or from the resume menu); they accept
+`--org` and, for rotation, `--yes`, and no other options. See
+[Rotation and teardown](#rotation-and-teardown).
 
 ## Remote builds
 
@@ -70,11 +74,15 @@ explicitly requests another build; rerun without it to resume a pending deploy.
   follows the installer's authentication format, independently of the guest
   runtime. Newer parent credentials support explicit action restrictions; the
   current saved login uses prefix/expiry policy restrictions. The installer
-  reads stored metadata when issuance omits it and verifies token administration
-  is denied before storing the credential.
+  always lists the new token back, confirms its stored `name_prefix` equals the
+  requested prefix whether or not the create response carried `expires_at`,
+  records its ID for later revocation, and verifies token administration is
+  denied before storing the credential.
   Its requested lifetime is 90 days and may be limited by its parent. Expiry
-  is recorded in the journal and printed at completion. Automatic credential
-  rotation is not implemented yet; reauthorization/rotation is a release gate.
+  is recorded in the journal as `credentialExpiresAt` and printed at completion;
+  setup warns on completion and on every rerun once fewer than 14 days remain.
+  Rotation is operator-initiated through `./setup --rotate-credential`; it is
+  not scheduled automatically.
 - Only the Amp provider token and child Sprite credential are installed as runtime
   secrets. The general Fly provisioning credential stays with the installer.
 - The image is built once, pushed, and deployed by immutable digest. The build
@@ -131,6 +139,33 @@ cleanup cannot reach Sprites, treat the child as potentially live until revoked
 or expired. Do not log it to diagnose the failure. Provisioning retains resources
 on failure so the user can retry without losing Orb files.
 
+## Rotation and teardown
+
+`./setup --rotate-credential --app NAME` runs `rotateCredential()` under the
+same installation lock. It requires a completed installation, mints a new
+restricted credential, stages only `SPRITE_TOKEN` (the Amp provider token and
+initial records are left as staged), redeploys the recorded image, and waits
+for the Amp connection. Only then is the previous credential revoked by the
+recorded `credentialTokenId`; the journal's `credentialExpiresAt` and
+`credentialTokenId` are updated as soon as the redeploy succeeds. A failed
+restage or redeploy revokes the new credential and leaves the previous one
+recorded, so the command can simply be rerun. If revocation of the previous
+credential fails after the new one is live, its ID is kept as
+`previousCredentialTokenId` and revoked at the start of the next rotation.
+No journal editing is needed at any point.
+
+`./setup --destroy --app NAME` runs `destroyInstallation()`. It asks the
+operator to type the app name; `--yes` never substitutes for that. It lists
+Sprites by the installation's prefix through the Sprites API and refuses while
+any remain, changing nothing. Otherwise it destroys the Fly app (its Machine
+and volume go with it), revokes the Sprite credential when its ID is recorded,
+journals each completed step so an interrupted teardown resumes, and finally
+removes `.state/installations/NAME`. It never touches the `fly-builder-*` app
+or the Amp provider; delete the provider in Amp Settings → Orbs.
+
+Both commands have been verified against fixtures only. Run them against a
+disposable installation before relying on them.
+
 ## Local-to-hosted handoff
 
 Archive all threads using the local provider and wait for their ownership records
@@ -145,50 +180,9 @@ Only one provider process may use the Amp token. The installer cannot discover
 arbitrary controllers on other computers. Amp's own duplicate-provider handling
 also remains active; the installer never passes `--allow-multiple`.
 
-## Credential expiry
-
-The dispatcher's Sprite credential expires 90 days after it is issued. Setup
-prints the date and records it as `credentialExpiresAt` in `installation.json`.
-After expiry, Orbs stop spawning until a new credential is installed. Until
-rotation is automated, rotate manually before expiry with the original
-`AMP_ORB_PROVIDER_TOKEN` available in the environment:
-
-1. Edit `.state/installations/APP/installation.json`: remove `secretsConfigured`,
-   `credentialExpiresAt`, and `credentialTokenId`, and set `activated` to `false`.
-2. Run `./setup --app APP`. It mints a new restricted credential, restages both
-   secrets, and redeploys the same Machine.
-3. If the old `credentialTokenId` was recorded, revoke it:
-
-   ```sh
-   sprite -o ORG api /v1/tokens/OLD_TOKEN_ID -- --request DELETE
-   ```
-
-## Remove an installation
-
-Uninstall is not automated yet. To remove everything by hand:
-
-1. In Amp, delete (not just archive) every thread that used the provider so the
-   dispatcher deletes their Sprites. Confirm none remain, using `spec.provider`
-   from `installation.json` as the prefix:
-
-   ```sh
-   sprite -o ORG list --prefix PREFIX-
-   ```
-
-2. Destroy the Fly app, which removes its Machine and volume:
-
-   ```sh
-   fly apps destroy APP --yes
-   ```
-
-3. Revoke the Sprite credential if `credentialTokenId` is recorded (see above);
-   otherwise it expires on its own.
-4. Delete the provider in [Amp Settings → Orbs](https://ampcode.com/settings/orbs),
-   or keep it to reinstall later with its token.
-5. Remove `.state/installations/APP`. The `fly-builder-*` app Fly created for
-   remote builds can also be destroyed.
-
 ## Deferred work
 
-Runtime credential rotation and uninstall are not automated yet. Sprites 2 activation
-and account billing requirements still belong to Fly's normal account setup.
+Credential rotation and teardown are operator-initiated commands; scheduled
+rotation and a live acceptance run of `--rotate-credential` and `--destroy`
+remain to be done. Sprites 2 activation and account billing requirements still
+belong to Fly's normal account setup.

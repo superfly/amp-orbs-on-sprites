@@ -261,3 +261,29 @@ test('pause remains retryable until explicit hold release succeeds', async t => 
   await f.run({ ORB_OPERATION: 'pause' });
   assert.equal(releases, 1);
 });
+
+test('pause clears the Orb token from the stored service definition', async t => {
+  const f = await fixture(t);
+  await f.run();
+  assert.equal(f.api.service.process.env.ORB_TOKEN, 'orb-secret');
+  await f.run({ ORB_OPERATION: 'pause', ORB_TOKEN: '' });
+  assert.equal(f.api.service.desired_state, 'stopped');
+  assert.deepEqual(f.api.service.process.env, {});
+  assert.deepEqual(f.api.service.process.argv.slice(0, 1), ['/usr/bin/sudo']);
+  const stopped = f.api.calls.filter(c => c.method === 'PUT' && c.body?.desired_state === 'stopped');
+  assert.equal(stopped.length, 1);
+  assert.deepEqual(stopped[0].body.process.env, {});
+  assert.ok(!JSON.stringify(stopped).includes('orb-secret'));
+});
+
+test('a service already stopped with a retained token is rewritten without it', async t => {
+  const f = await fixture(t);
+  await f.run();
+  f.api.service.desired_state = 'stopped';
+  f.api.service.state.status = 'stopped';
+  await f.run({ ORB_OPERATION: 'pause' });
+  assert.deepEqual(f.api.service.process.env, {});
+  assert.equal(f.api.calls.filter(c => c.method === 'PUT' && c.body?.desired_state === 'stopped').length, 1);
+  await f.run({ ORB_OPERATION: 'pause' });
+  assert.equal(f.api.calls.filter(c => c.method === 'PUT' && c.body?.desired_state === 'stopped').length, 1);
+});

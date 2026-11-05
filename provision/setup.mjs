@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 import { FlyPlatform } from './fly-platform.mjs';
 import { SpritesCLIAPI } from '../src/cli-api.mjs';
 import { ProviderError } from '../src/api.mjs';
-import { setupFlow } from './setup-flow.mjs';
+import { setupFlow, credentialNotice } from './setup-flow.mjs';
 import { runInstallation } from './run.mjs';
 import { AmpProviderSetup } from './amp-provider.mjs';
 import { loadSettings, childEnvironment } from './environment.mjs';
@@ -19,6 +19,8 @@ const options={};
 const help=`Usage: ./setup [--org SLUG] [--app NAME] [--provider PREFIX] [--region ord]
                [--amp-provider NAME] [--amp-workspace NAMESPACE]
                [--rebuild] [--handoff-local] [--yes]
+       ./setup --rotate-credential [--org SLUG] [--app NAME] [--yes]
+       ./setup --destroy [--org SLUG] [--app NAME]
 
 Guides Fly/Sprites login and Amp provider setup, builds on Fly, and deploys one
 hosted dispatcher. Requires Node.js 22+. Fly/Sprite CLIs and a verified Amp CLI
@@ -29,7 +31,17 @@ Rerun to resume/check an installation. --rebuild deploys the current source.
 New providers are personal unless --amp-workspace is supplied or chosen.
 --yes accepts installation/deployment prompts; sign in beforehand for unattended
 setup. AMP_ORB_PROVIDER_TOKEN remains available for existing providers or CI.
-Tokens are never command flags.`;
+Tokens are never command flags.
+
+--rotate-credential replaces the dispatcher's 90-day Sprite credential: it mints
+a new restricted credential, restages only SPRITE_TOKEN, redeploys the same
+image, verifies the Amp connection, then revokes the previous credential. Setup
+warns when the recorded expiry is within 14 days.
+--destroy removes a completed installation: it refuses while any Sprite with
+the installation's prefix exists, then destroys the Fly app (Machine and volume
+included), revokes the Sprite credential, and deletes .state/installations/APP.
+It asks you to type the app name; --yes does not bypass that. The Amp provider
+and the fly-builder-* app are left in place.`;
 
 async function interactive(binary,args,env=childEnvironment()) {
   await new Promise((accept,reject)=>{
@@ -67,6 +79,9 @@ const messages={
   'connecting-sprites':'Creating and verifying the restricted Sprite credential…',
   'activating-dispatcher':'Deploying the dispatcher…','verifying-connection':'Waiting for the Amp connection…',
   ready:'Dispatcher connected to Amp.',
+  'revoking-credential':'Revoking the previous Sprite credential…', rotated:'Dispatcher connected to Amp with the new credential.',
+  'checking-orbs':'Checking for remaining Orb Sprites…','destroying-app':'Destroying the Fly app, its Machine, and its volume…',
+  destroyed:'Installation removed.',
 };
 try {
   const args=process.argv.slice(2);
@@ -77,8 +92,11 @@ try {
     else if(flag==='--yes')options.yes=true;
     else if(flag==='--rebuild')options.rebuild=true;
     else if(flag==='--handoff-local')options.handoff=true;
+    else if(flag==='--rotate-credential')options.rotate=true;
+    else if(flag==='--destroy')options.destroy=true;
     else throw new ProviderError(help);
   }
+  if((options.rotate || options.destroy) && (options.rebuild || options.handoff || options['amp-provider'] || options['amp-workspace'] || options.provider || options.region || (options.rotate && options.destroy)))throw new ProviderError('--rotate-credential and --destroy take only --org, --app, and (for rotation) --yes.');
   // Keep the Amp token out of process.env: every CLI below would inherit it.
   const local=await loadSettings(root);
   process.env.PATH=[join(root,'.tools','bin'),join(root,'.tools','fly','bin'),join(homedir(),'.fly','bin'),join(homedir(),'.local','bin'),process.env.PATH].join(delimiter);
@@ -126,9 +144,15 @@ try {
   }
   const amp=new AmpProviderSetup({root,interactive,log:message=>ui.log(message)});
   const result=await setupFlow({options,env:{...local.settings,AMP_ORB_PROVIDER_TOKEN:local.ampToken},ui,connection,installations,run:input=>runInstallation({root,...input,resolveAmpProvider:args=>amp.resolve(args),progress:e=>ui.log(messages[e.step] || e.step)})});
-  if(result) {
+  if(result?.destroyed) {
+    console.log(`\nRemoved ${result.spec.app} from Fly and forgot the installation.`);
+    console.log(result.credentialRevoked?'The Sprite credential was revoked.':`No Sprite credential ID was recorded; the credential expires on its own${result.credentialExpiresAt?` (${String(result.credentialExpiresAt).slice(0,10)})`:''}.`);
+    console.log(`Delete the provider${result.ampProvider?.name?` ${result.ampProvider.name}`:''} in Amp Settings → Orbs: https://ampcode.com/settings/orbs`);
+    console.log('The fly-builder-* app Fly created for remote builds was left in place.');
+  } else if(result) {
     console.log(`\nReady: https://fly.io/apps/${result.spec.app}`);
-    console.log(`In Amp, start a thread and select ${result.ampProvider?.name || 'the provider whose token you supplied'}. You can close this terminal.`);
-    console.log(`Sprite credential expires ${result.credentialExpiresAt}. Credential rotation is not automated yet.`);
+    if(result.rotation)console.log(result.rotation.previousRevoked?'The previous Sprite credential was revoked.':'The previous Sprite credential had no recorded ID; it expires on its own.');
+    else console.log(`In Amp, start a thread and select ${result.ampProvider?.name || 'the provider whose token you supplied'}. You can close this terminal.`);
+    for(const line of credentialNotice(result))console.log(line);
   }
 }catch(error){console.error(error instanceof ProviderError?error.message:'Setup failed. Check your connection and saved installation state, then rerun ./setup.');process.exitCode=1;}

@@ -88,6 +88,41 @@ git pull --ff-only
 Rebuilding keeps the existing storage and credentials. The dispatcher briefly
 restarts when the new version is deployed.
 
+### Rotate the Sprite credential
+
+The dispatcher's Sprite credential expires **90 days** after it is issued. Setup
+prints the expiry date when it finishes and warns on any rerun once fewer than
+14 days remain. After expiry, Orbs stop spawning until the credential is
+replaced. To replace it:
+
+```sh
+./setup --rotate-credential --app YOUR_APP_NAME
+```
+
+This mints a new restricted credential, restages only that secret, redeploys
+the same dispatcher image (it briefly restarts), waits for the Amp connection,
+then revokes the previous credential. The Amp provider token is not needed
+again. If restaging or the redeploy fails, the new credential is revoked and
+the previous one stays in place; rerun the command to try again.
+
+### Remove the installation
+
+1. In Amp, delete (not just archive) every thread that used this provider so
+   the dispatcher deletes their Sprites.
+2. Run the teardown and type the app name when asked. `--yes` does not skip
+   that confirmation:
+
+   ```sh
+   ./setup --destroy --app YOUR_APP_NAME
+   ```
+
+   It refuses while any Sprite with the installation's prefix still exists.
+   Otherwise it destroys the Fly app with its Machine and volume, revokes the
+   Sprite credential, and removes `.state/installations/YOUR_APP_NAME`.
+3. Delete the provider in [Amp Settings → Orbs](https://ampcode.com/settings/orbs).
+   Teardown does not touch it, nor the `fly-builder-*` app Fly created for
+   remote builds; destroy that app yourself if you no longer want it.
+
 For setup options, run `./setup --help`. To use an existing provider, automate
 setup, or recover from a failure, see [setup and recovery](docs/provisioning.md).
 If setup reports an ambiguous creation or ownership problem, follow that guide
@@ -100,9 +135,9 @@ before retrying or deleting saved state.
 - Desktop, portals, repository checkout, and cold resume have not yet been
   verified end to end. Command execution, file persistence, warm sleep/resume,
   and deletion have been tested with real Orbs.
-- Credential renewal and uninstall are not automated. Setup reports when the
-  Sprite credential expires; plan to renew it before then. Manual procedures for
-  both are in [setup and recovery](docs/provisioning.md#credential-expiry).
+- Credential rotation is manual: run `./setup --rotate-credential` when setup
+  warns that the Sprite credential expires within 14 days. Rotation and
+  `--destroy` have been exercised against fixtures only, not yet end to end.
 - The agent runs with passwordless `sudo` on its own single-tenant Sprite, so it
   can read its own Orb token and change anything on that Sprite.
 

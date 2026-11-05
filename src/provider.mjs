@@ -172,8 +172,11 @@ async function stopBootstrap(api, path, sleep) {
   if (!service.data?.process) throw new ProviderError('Expected Sprites 2 service schema');
   // Persist desired state: a runtime-only stop can restart after a cold boot.
   const { runtime, ...definition } = service.data;
-  if (definition.desired_state === 'stopped' && runtime?.status === 'stopped') return;
-  await api.request('PUT', `${path}/services/${SERVICE}`, { ...definition, desired_state: 'stopped' });
+  const retainedEnv = Object.keys(definition.process.env || {}).length > 0;
+  if (definition.desired_state === 'stopped' && runtime?.status === 'stopped' && !retainedEnv) return;
+  // Drop the Orb token from the stored definition so it does not persist on a
+  // paused Sprite; spawn always supplies a fresh definition and token.
+  await api.request('PUT', `${path}/services/${SERVICE}`, { ...definition, process: { ...definition.process, env: {} }, desired_state: 'stopped' });
   await waitService(api, path, new Set(['stopped']), sleep);
 }
 async function waitService(api, path, desired, sleep) {

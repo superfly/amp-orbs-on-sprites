@@ -120,16 +120,15 @@ export class FlyPlatform {
       policy: { name_prefix: prefix, expires_at: expiresAt },
     });
     const credential = { token: value.token, expiresAt: value.expires_at || value.policy?.expires_at };
-    if (!value.expires_at) {
+    try {
+      // Always confirm the stored restriction from token metadata, whichever
+      // fields the create response carried, and record the ID for revocation.
       const { tokens } = await this.sprites.request('GET','/tokens');
-      const matches = tokens.filter(t => t.description === description);
+      const matches = (tokens || []).filter(t => t.description === description);
       if (matches.length !== 1) throw new ProviderError('Cannot identify newly minted runtime credential; inspect token metadata');
       credential.tokenId = matches[0].id;
-      credential.expiresAt = matches[0].policy?.expires_at;
-      credential.confirmedPrefix = matches[0].policy?.name_prefix;
-    }
-    try {
-      if (!credential.token || !credential.expiresAt || (!value.expires_at && credential.confirmedPrefix !== prefix)) throw new ProviderError('Runtime credential restrictions were not confirmed');
+      credential.expiresAt ||= matches[0].policy?.expires_at;
+      if (!credential.token || !credential.expiresAt || matches[0].policy?.name_prefix !== prefix) throw new ProviderError('Runtime credential restrictions were not confirmed');
       const child = this.runtimeClient(credential.token);
       await child.request('GET','/sprites?max_results=1');
       let denied = false;
@@ -142,12 +141,24 @@ export class FlyPlatform {
     if (credential.tokenId) await this.sprites.request('DELETE',`/tokens/${credential.tokenId}`);
     else await this.sprites.request('POST','/tokens/revoke',{token:credential.token});
   }
+  // Stages only the secrets supplied: a rotation restages SPRITE_TOKEN alone and
+  // leaves the Amp provider token and initial records untouched.
   async setSecrets(spec, secrets) {
-    const values = { AMP_ORB_PROVIDER_TOKEN: secrets.ampToken, SPRITE_TOKEN: secrets.spriteToken,
-      SPRITES_INITIAL_RECORDS: JSON.stringify(secrets.initialRecords) };
-    if (Object.values(values).some(v => /[\r\n]/.test(v))) throw new ProviderError('Invalid multiline credential');
+    const values = { SPRITE_TOKEN: secrets.spriteToken };
+    if (secrets.ampToken !== undefined) values.AMP_ORB_PROVIDER_TOKEN = secrets.ampToken;
+    if (secrets.initialRecords !== undefined) values.SPRITES_INITIAL_RECORDS = JSON.stringify(secrets.initialRecords);
+    if (Object.values(values).some(v => typeof v !== 'string' || !v || /[\r\n]/.test(v))) throw new ProviderError('Invalid or multiline credential');
     await this.fly(['secrets','import','--app',spec.app,'--stage'], { input: Object.entries(values).map(([k,v])=>`${k}=${v}`).join('\n')+'\n' });
   }
+  // Sprites still carrying this installation's prefix block teardown.
+  async listSprites(spec, limit = 50) {
+    const result = await this.sprites.request('GET', `/sprites?prefix=${encodeURIComponent(`${spec.provider}-`)}&max_results=${limit}`);
+    const sprites = Array.isArray(result?.sprites) ? result.sprites : [];
+    return { names: sprites.map(s => String(s.name || '')).filter(n => n.startsWith(`${spec.provider}-`)), more: result?.has_more === true };
+  }
+  // Removes the dispatcher app together with its Machine and volume. The
+  // fly-builder-* app and the Amp provider are never touched here.
+  async destroyApp(spec) { await this.fly(['apps','destroy',spec.app,'--yes']); }
   async machines(spec) { return JSON.parse(await this.fly(['machine','list','--app',spec.app,'--json'])); }
   async deploy(spec, image) {
     const machines = await this.machines(spec);

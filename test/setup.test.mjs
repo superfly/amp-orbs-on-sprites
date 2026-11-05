@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { setupFlow } from '../provision/setup-flow.mjs';
+import { setupFlow, credentialNotice } from '../provision/setup-flow.mjs';
 import { FlyPlatform } from '../provision/fly-platform.mjs';
 import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { loadSettings, childEnvironment } from '../provision/environment.mjs';
@@ -96,6 +96,46 @@ test('remote builder never calls Docker and resolves a digest without registry r
   assert.ok(calls[0].includes('--remote-only'));assert.ok(calls[0].includes('--build-only'));assert.ok(calls[0].includes('--depot=false'));
   assert.ok(!calls.some(c=>c.includes('docker')||c.includes('--local-only')));
   const config=await readFile(join(directory,'build.toml'),'utf8');assert.ok(!config.includes('[build]'));assert.match(config,/amp-example/);
+});
+
+const completed={spec,secretsConfigured:true,activated:true,image:'img',credentialExpiresAt:'2026-11-10T00:00:00Z',credentialTokenId:'tok_1',ampProvider:{name:'saved',workspace:null,phase:'created'}};
+const now=Date.parse('2026-11-04T00:00:00Z');
+test('credential notices name the rotation command and warn within fourteen days',()=>{
+  assert.deepEqual(credentialNotice({spec},now),[]);
+  const fine=credentialNotice({...completed,credentialExpiresAt:'2027-01-01T00:00:00Z'},now);
+  assert.equal(fine.length,1);assert.match(fine[0],/expires 2027-01-01.*--rotate-credential --app amp-example/);
+  const soon=credentialNotice(completed,now);
+  assert.equal(soon.length,2);assert.match(soon[0],/6 days left/);assert.match(soon[1],/^Rotate it with: \.\/setup --rotate-credential --app amp-example$/);
+  assert.match(credentialNotice({...completed,credentialExpiresAt:'2026-11-01T00:00:00Z'},now)[0],/expired 2026-11-01/);
+});
+test('plain reruns warn about a credential that expires soon',async()=>{
+  const f=fixture();f.connect();
+  await setupFlow({...f,options:{org:'example',app:spec.app,yes:true},installations:[completed],now});
+  assert.ok(f.logs.some(l=>/6 days left/.test(l)));assert.ok(f.logs.some(l=>l.includes('--rotate-credential --app amp-example')));
+  assert.equal(f.submitted.mode,undefined);
+});
+test('rotation runs only for a completed installation and skips Amp provider prompts',async()=>{
+  const f=fixture();f.connect();
+  await setupFlow({...f,options:{rotate:true,org:'example',app:spec.app,yes:true},installations:[completed],now});
+  assert.deepEqual(f.submitted,{spec,mode:'rotate'});assert.ok(!f.events.includes('token-prompt'));
+  assert.ok(f.logs.some(l=>l.includes('revoke the previous credential')));
+  await assert.rejects(setupFlow({...f,options:{rotate:true,org:'example',app:'unknown-app'},installations:[completed]}),/No installation named unknown-app/);
+  await assert.rejects(setupFlow({...f,options:{rotate:true,org:'example',app:spec.app},installations:[{spec,secretsConfigured:true,activated:false}]}),/Finish the installation/);
+  const g=fixture();g.connect();g.ui.confirm=async()=>false;
+  assert.equal(await setupFlow({...g,options:{rotate:true,org:'example',app:spec.app},installations:[completed]}),null);
+  assert.ok(!g.events.includes('provision'));
+});
+test('destroy requires the typed app name and is not bypassed by --yes',async()=>{
+  const f=fixture();f.connect();f.ui.ask=async()=>'amp-exampl';
+  assert.equal(await setupFlow({...f,options:{destroy:true,org:'example',app:spec.app,yes:true},installations:[completed]}),null);
+  assert.ok(!f.events.includes('provision'));assert.ok(f.logs.some(l=>l.includes('did not match')));
+  f.ui.ask=async label=>{assert.match(label,/amp-example/);return spec.app;};
+  await setupFlow({...f,options:{destroy:true,org:'example',app:spec.app},installations:[completed]});
+  assert.deepEqual(f.submitted,{spec,mode:'destroy'});
+  assert.ok(f.logs.some(l=>l.includes('Amp Settings → Orbs')));
+  const g=fixture();g.connect();g.ui.ask=async()=>{throw new Error('Interactive setup needs a terminal.');};
+  await assert.rejects(setupFlow({...g,options:{destroy:true,org:'example',app:spec.app,yes:true},installations:[completed]}),/needs a terminal/);
+  assert.ok(!g.events.includes('provision'));
 });
 test('installer loads .env.local without exposing the Amp token to child processes',async t=>{
   const root=await mkdtemp(join(tmpdir(),'amp-env-'));t.after(()=>rm(root,{recursive:true,force:true}));
