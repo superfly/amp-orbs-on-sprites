@@ -5,6 +5,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { SpritesCLIAPI } from '../src/cli-api.mjs';
 import { randomUUID } from 'node:crypto';
 import { SpritesAPI, ProviderError } from '../src/api.mjs';
+import { childEnvironment } from './environment.mjs';
 
 export function flyConfig(spec, image) {
   return `app = "${spec.app}"
@@ -36,7 +37,7 @@ kill_timeout = "30s"
 // transport to the same provision() operation without changing its workflow.
 export class FlyPlatform {
   constructor({ root, directory, progress = () => {}, env = process.env }) {
-    this.root = root; this.directory = directory; this.progress = progress; this.env = env;
+    this.root = root; this.directory = directory; this.progress = progress; this.env = childEnvironment(env);
     this.runtimeClient = token => new SpritesAPI(token, AbortSignal.timeout(45000));
   }
   async command(binary, args, { input, timeout = 120_000, cwd = this.root } = {}) {

@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { setupFlow, credentialNotice } from '../provision/setup-flow.mjs';
 import { FlyPlatform } from '../provision/fly-platform.mjs';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
+import { loadSettings, childEnvironment } from '../provision/environment.mjs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
@@ -135,4 +136,17 @@ test('destroy requires the typed app name and is not bypassed by --yes',async()=
   const g=fixture();g.connect();g.ui.ask=async()=>{throw new Error('Interactive setup needs a terminal.');};
   await assert.rejects(setupFlow({...g,options:{destroy:true,org:'example',app:spec.app,yes:true},installations:[completed]}),/needs a terminal/);
   assert.ok(!g.events.includes('provision'));
+});
+test('installer loads .env.local without exposing the Amp token to child processes',async t=>{
+  const root=await mkdtemp(join(tmpdir(),'amp-env-'));t.after(()=>rm(root,{recursive:true,force:true}));
+  await writeFile(join(root,'.env.local'),`AMP_ORB_PROVIDER_TOKEN=${token}\nSPRITES_PROVIDER_ID=amp-file\nORB_TOKEN=orb-secret\n`);
+  const env={PATH:process.env.PATH,SPRITES_PROVIDER_ID:'amp-shell',ORB_TOKEN:'orb-shell'};
+  const local=await loadSettings(root,env);
+  assert.equal(local.ampToken,token);assert.equal(local.settings.SPRITES_PROVIDER_ID,'amp-shell');
+  assert.ok(!('AMP_ORB_PROVIDER_TOKEN' in env));assert.ok(!('ORB_TOKEN' in env));
+  const shell={PATH:process.env.PATH,AMP_ORB_PROVIDER_TOKEN:token,ORB_TOKEN:'orb',KEEP:'yes'};
+  assert.deepEqual(childEnvironment(shell),{PATH:process.env.PATH,KEEP:'yes'});
+  const p=new FlyPlatform({root,directory:root,env:shell});
+  const seen=await p.command(process.execPath,['-e','console.log(JSON.stringify([process.env.AMP_ORB_PROVIDER_TOKEN,process.env.ORB_TOKEN,process.env.KEEP]))']);
+  assert.deepEqual(JSON.parse(seen),[null,null,'yes']);
 });

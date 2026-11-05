@@ -10,8 +10,12 @@ You'll need:
 
 - macOS or Linux, including Windows through WSL.
 - Git and **Node.js 22 or newer**.
-- A Fly.io account and an organization with **Sprites 2 enabled**. The original
-  Sprites runtime is not supported by this integration.
+- A Fly.io account with a payment method on file; setup can create the account,
+  but Fly will not create apps for an organization without billing details.
+- An organization with **Sprites 2 enabled**. The original Sprites runtime is
+  not supported. Sprites 2 is not yet enabled everywhere: if setup reports that
+  Sprites access is not ready after you authorize it in the browser, ask Fly
+  support to enable Sprites 2 for that organization, then rerun `./setup`.
 - An Amp account. Setup will guide you through signing in if needed.
 
 This integration is experimental. Check the [current limitations](#current-limitations)
@@ -40,7 +44,9 @@ link and the provider name to select in Amp. You can close the terminal.
 
 ## Use your Orbs
 
-Start a thread in Amp and select the provider name printed by setup.
+Start a thread in Amp and select the provider name printed by setup. To check
+that it works, ask it to run `uname -m` and `id -un`: a working Orb returns
+`x86_64` and `user`.
 
 - **Work:** Amp runs tools and keeps working files on that thread's Sprite.
 - **Pause:** Archive the thread to pause its Orb and let the Sprite sleep.
@@ -132,6 +138,8 @@ before retrying or deleting saved state.
 - Credential rotation is manual: run `./setup --rotate-credential` when setup
   warns that the Sprite credential expires within 14 days. Rotation and
   `--destroy` have been exercised against fixtures only, not yet end to end.
+- The agent runs with passwordless `sudo` on its own single-tenant Sprite, so it
+  can read its own Orb token and change anything on that Sprite.
 
 ## Help and development
 

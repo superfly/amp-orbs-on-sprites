@@ -125,6 +125,9 @@ variables. Custom adapter settings use `SPRITES_*`; use those names rather than
 - Org/provider credentials stay on the controller. Only the short-lived Orb token
   and Amp URL enter the Sprite service. Its environment is persisted sensitive
   configuration and may appear in snapshots/backups; restrict access.
+- The agent runs as `user` with passwordless `sudo` on its dedicated Sprite. It can
+  read its own Orb token from the service configuration and modify anything on
+  that Sprite; the pinned Amp binary is re-verified on every spawn.
 - API bodies and CLI stderr are not printed by the adapter. Requests containing
   credentials use stdin, not process arguments. Bootstrap logs remain sensitive.
 - Failed preparation retains the Sprite for retry. Ambiguous creation requires

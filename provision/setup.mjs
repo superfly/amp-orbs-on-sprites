@@ -12,6 +12,7 @@ import { ProviderError } from '../src/api.mjs';
 import { setupFlow, credentialNotice } from './setup-flow.mjs';
 import { runInstallation } from './run.mjs';
 import { AmpProviderSetup } from './amp-provider.mjs';
+import { loadSettings, childEnvironment } from './environment.mjs';
 const execute=promisify(execFile);
 const root=dirname(dirname(fileURLToPath(import.meta.url)));
 const options={};
@@ -42,7 +43,7 @@ included), revokes the Sprite credential, and deletes .state/installations/APP.
 It asks you to type the app name; --yes does not bypass that. The Amp provider
 and the fly-builder-* app are left in place.`;
 
-async function interactive(binary,args,env=process.env) {
+async function interactive(binary,args,env=childEnvironment()) {
   await new Promise((accept,reject)=>{
     const child=spawn(binary,args,{cwd:root,env,stdio:'inherit'});
     child.once('error',()=>reject(new ProviderError(`Could not start ${binary}.`)));
@@ -96,7 +97,8 @@ try {
     else throw new ProviderError(help);
   }
   if((options.rotate || options.destroy) && (options.rebuild || options.handoff || options['amp-provider'] || options['amp-workspace'] || options.provider || options.region || (options.rotate && options.destroy)))throw new ProviderError('--rotate-credential and --destroy take only --org, --app, and (for rotation) --yes.');
-  if(existsSync(join(root,'.env.local')))process.loadEnvFile(join(root,'.env.local'));
+  // Keep the Amp token out of process.env: every CLI below would inherit it.
+  const local=await loadSettings(root);
   process.env.PATH=[join(root,'.tools','bin'),join(root,'.tools','fly','bin'),join(homedir(),'.fly','bin'),join(homedir(),'.local','bin'),process.env.PATH].join(delimiter);
   const platform=new FlyPlatform({root,directory:join(root,'.state'),progress:e=>ui.log(messages[e.step] || e.step)});
   async function installTool(name) {
@@ -111,7 +113,7 @@ try {
     const directory=join(root,'.tools');await mkdir(directory,{recursive:true,mode:0o700});
     const path=join(directory,`install-${name}.sh`);await writeFile(path,content,{mode:0o700});
     ui.log(`Installing ${name} from its official distribution…`);
-    await interactive('sh',[path,...(name==='sprite'?['--bin-dir',join(directory,'bin')]:[])],{...process.env,FLYCTL_INSTALL:join(directory,'fly')});
+    await interactive('sh',[path,...(name==='sprite'?['--bin-dir',join(directory,'bin')]:[])],{...childEnvironment(),FLYCTL_INSTALL:join(directory,'fly')});
     await execute(name,['--help'],{env:process.env,timeout:10_000});
   }
   const connection={
@@ -141,7 +143,7 @@ try {
     catch(error){if(error.code!=='ENOENT' && error.code!=='ENOTDIR')throw new ProviderError('Cannot read saved installation state. Inspect .state/installations before continuing.');}
   }
   const amp=new AmpProviderSetup({root,interactive,log:message=>ui.log(message)});
-  const result=await setupFlow({options,env:process.env,ui,connection,installations,run:input=>runInstallation({root,...input,resolveAmpProvider:args=>amp.resolve(args),progress:e=>ui.log(messages[e.step] || e.step)})});
+  const result=await setupFlow({options,env:{...local.settings,AMP_ORB_PROVIDER_TOKEN:local.ampToken},ui,connection,installations,run:input=>runInstallation({root,...input,resolveAmpProvider:args=>amp.resolve(args),progress:e=>ui.log(messages[e.step] || e.step)})});
   if(result?.destroyed) {
     console.log(`\nRemoved ${result.spec.app} from Fly and forgot the installation.`);
     console.log(result.credentialRevoked?'The Sprite credential was revoked.':`No Sprite credential ID was recorded; the credential expires on its own${result.credentialExpiresAt?` (${String(result.credentialExpiresAt).slice(0,10)})`:''}.`);

@@ -27,8 +27,8 @@ Automatic creation currently targets `https://ampcode.com` only.
 
 For existing providers, the token may still come from `AMP_ORB_PROVIDER_TOKEN`
 or a private ignored `.env.local`, which skips automatic creation. No token is
-passed through command arguments or written to the
-installation journal. On rerun, a completed installation reuses its staged
+passed through command arguments, inherited by child processes (CLI installers,
+`fly`, `sprite`, `amp`), or written to the installation journal. On rerun, a completed installation reuses its staged
 credentials without needing the original Amp token locally.
 
 `--org`, `--app`, `--provider`, and `--region` preselect choices. Region defaults
