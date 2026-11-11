@@ -44,6 +44,29 @@ export function configuration(env) {
   return config;
 }
 
+// Amp currently uses amp-<thread ID>. Unknown formats are not eligible for retirement.
+function threadForOrb(orbId) {
+  const match = /^amp-(?:T-)?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.exec(orbId);
+  return match ? `T-${match[1]}` : null;
+}
+
+export function retirementConfiguration(env, request) {
+  if (env.SPRITES_ALLOW_WORKER_RETIREMENT !== '1') throw new ProviderError('Worker retirement is disabled');
+  const identity = request?.identity;
+  if (request?.version !== 1 || !/^[0-9a-f-]{36}$/.test(request.id || '') ||
+      !/^T-[0-9a-f-]{36}$/.test(request.owner || '') || request.owner === request.worker ||
+      !['reviewer', 'security'].includes(request.role) ||
+      !/^[0-9a-f]{64}$/.test(request.receiptHash || '') ||
+      typeof identity?.orbId !== 'string' || threadForOrb(identity.orbId) !== request.worker ||
+      identity.threadID !== request.worker || !/^[0-9a-f-]{36}$/.test(identity.generation || '') ||
+      typeof identity.spriteId !== 'string' || !identity.spriteId)
+    throw new ProviderError('Invalid worker retirement identity or receipt binding');
+  const config = configuration({ ...env, ORB_OPERATION: 'pause', ORB_ID: identity.orbId });
+  if (identity.provider !== config.provider || identity.org !== config.org || identity.name !== config.name)
+    throw new ProviderError('Retirement targets a different provider or organization');
+  return { ...config, operation: 'retire', retirement: request };
+}
+
 async function readRecord(path) {
   try { return JSON.parse(await readFile(path, 'utf8')); }
   catch (e) { if (e.code === 'ENOENT') return null; throw new ProviderError('Cannot read provider state'); }
@@ -57,7 +80,8 @@ async function saveRecord(path, value) {
 export async function prepareSprite(config, signal) {
   const prepareScript = await readFile(new URL('../bootstrap/prepare.sh', import.meta.url), 'utf8');
   const runner = await readFile(new URL('../bootstrap/run.sh', import.meta.url), 'utf8');
-  const script = `${prepareScript}\nrunner_tmp=$(mktemp)\ncat >"$runner_tmp" <<'AMP_SPRITES_RUNNER'\n${runner}\nAMP_SPRITES_RUNNER\ninstall -m 0755 "$runner_tmp" /usr/local/bin/amp-orb-bootstrap\nrm -f "$runner_tmp"\n`;
+  const identity = Buffer.from(JSON.stringify(config.identity ?? null)).toString('base64');
+  const script = `${prepareScript}\nrunner_tmp=$(mktemp)\ncat >"$runner_tmp" <<'AMP_SPRITES_RUNNER'\n${runner}\nAMP_SPRITES_RUNNER\ninstall -m 0755 "$runner_tmp" /usr/local/bin/amp-orb-bootstrap\nprintf '%s' '${identity}' | base64 -d >"$runner_tmp"\ninstall -m 0644 "$runner_tmp" /etc/amp-orb-identity.json\nrm -f "$runner_tmp"\n`;
   await new Promise((accept, reject) => {
     // In particular do not inherit AMP_ORB_PROVIDER_TOKEN or ORB_TOKEN.
     const child = spawn(config.spriteBin, [
@@ -109,6 +133,42 @@ export async function dispatch(config, api, {
     if (sprite && (!record || record.id !== sprite.id || sprite.organization !== c.org)) {
       throw new ProviderError('Sprite ownership is unverified; inspect state before adopting or deleting');
     }
+    if (c.operation === 'retire') {
+      const request = c.retirement;
+      if (!record || record.id !== request.identity.spriteId || record.generation !== request.identity.generation)
+        throw new ProviderError('Worker incarnation changed or is unknown; retirement refused');
+      const fingerprint = hash(JSON.stringify(request));
+      if (record.retirement && record.retirement.fingerprint !== fingerprint)
+        throw new ProviderError('Conflicting retirement request');
+      if (record.retirement?.status === 'done') {
+        if (sprite) throw new ProviderError('Retired Sprite reappeared; inspect ownership');
+        return { status: 'retired', id: request.id, identity: request.identity, receiptHash: request.receiptHash };
+      }
+      if (!record.paused) return { status: 'waiting_for_pause', id: request.id };
+      // No wake-inducing exec. A resume shares this lock and rotates generation.
+      if (sprite) {
+        const service = await api.request('GET', `${path}/services/${SERVICE}`, undefined, { missing: true });
+        if (service && (service.data?.desired_state !== 'stopped' ||
+            !(service.data.runtime?.status === 'stopped' || service.data.runtime?.running === false)))
+          throw new ProviderError('Worker bootstrap is not stopped; retirement refused');
+        if (record.retirement) throw new ProviderError('Retirement outcome uncertain; Sprite still exists. Inspect before retrying deletion');
+        record.retirement = { fingerprint, status: 'pending' };
+        await saveRecord(recordPath, record);
+        await api.request('DELETE', path, undefined, { missing: true });
+        let absent = false;
+        for (let attempt = 0; attempt < 20; attempt++) {
+          const remaining = await api.request('GET', path, undefined, { missing: true });
+          if (!remaining) { absent = true; break; }
+          if (remaining.id !== record.id) throw new ProviderError('Sprite identity changed during retirement');
+          await sleep(1000);
+        }
+        if (!absent) throw new ProviderError('Retirement not yet confirmed; ownership retained');
+      }
+      // Keep a tombstone until a later spawn establishes a new incarnation.
+      record.retirement = { fingerprint, status: 'done' };
+      await saveRecord(recordPath, record);
+      return { status: 'retired', id: request.id, identity: request.identity, receiptHash: request.receiptHash };
+    }
     if (c.snapshot) log('Project snapshots are unsupported; new Orbs run normal setup.');
     if (c.operation === 'delete') {
       if (sprite) {
@@ -137,6 +197,7 @@ export async function dispatch(config, api, {
       log(`Released ${c.name} for automatic idle sleep; other workload activity may keep it awake.`);
       return;
     }
+    if (sprite && record?.retirement) throw new ProviderError('Retirement is unresolved; confirm deletion before resuming this Orb');
     if (!sprite) {
       sprite = await api.request('POST', '/sprites', { name: c.name, url_settings: { auth: 'sprite' } });
       if (Array.isArray(sprite)) sprite = sprite.find(event => event.type === 'sprite');
@@ -147,9 +208,12 @@ export async function dispatch(config, api, {
       await saveRecord(recordPath, record);
     }
     if (sprite.runtime_kind !== 'flyfs') throw new ProviderError('This provider requires the Sprites 2 runtime (flyfs)');
-    await saveRecord(recordPath, { ...record, paused: false });
+    record = { ...record, paused: false, generation: randomUUID() };
+    delete record.retirement;
+    await saveRecord(recordPath, record);
     await stopBootstrap(api, path, sleep);
-    await prepare(c, signal);
+    await prepare({ ...c, identity: { provider: c.provider, org: c.org, orbId: c.orbId, name: c.name,
+      spriteId: record.id, generation: record.generation, threadID: threadForOrb(c.orbId) } }, signal);
     const definition = {
       cmd: '/usr/bin/sudo',
       args: ['-n', '-H', '-u', 'user', '--preserve-env=ORB_TOKEN,AMP_URL', '--', '/usr/local/bin/amp-orb-bootstrap'],

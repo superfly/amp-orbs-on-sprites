@@ -2,8 +2,8 @@
 
 ## State and recovery
 
-Each record under `SPRITES_STATE_DIR/<provider>/` contains only the Orb ID,
-organization, Sprite ID, and paused flag. Directory permissions are private on
+Each record under `SPRITES_STATE_DIR/<provider>/` contains the Orb ID,
+organization, Sprite ID, paused flag, spawn generation, and any retirement fingerprint/status. It contains no credentials. Directory permissions are private on
 creation; keep the parent secure too. Do not edit these files while the controller
 is running. A local directory lock protects each record during a job.
 
@@ -27,6 +27,20 @@ from secret-bearing Sprite files.
 The API is addressed by name, so the ID ownership check and subsequent mutation
 are not one atomic operation. Reserve the prefix to this controller and prohibit
 out-of-band deletion/recreation during dispatch. This is not a distributed lease.
+
+## Opt-in review-worker retirement
+
+`retire.mjs` is an operator-only entrypoint for the PR review plugin's authorized relay. It deletes one exact worker incarnation without deleting its Amp conversation. It has no inbound HTTP endpoint. The Fly-hosted integration runs it through authenticated `fly ssh console`, pinned to the dispatcher app and Machine. Provider credentials remain on the dispatcher. Access to that host is administrative authority; the request's receipt hash is an audit binding, not authentication or a signature.
+
+Retirement is disabled unless the dispatcher's environment sets `SPRITES_ALLOW_WORKER_RETIREMENT=1`. Deployment and enabling that flag require operator approval. Normal `pause` remains non-destructive. Spawn writes non-secret identity metadata to `/etc/amp-orb-identity.json` and rotates the generation on every spawn, including resume. Old workers without this identity are ineligible. Only `amp-<UUID>` and `amp-T-<UUID>` Orb IDs can be bound to a worker thread; unknown formats fail closed.
+
+The command takes one base64-encoded JSON argument with `version: 1`, an assignment UUID `id`, distinct Amp `owner` and `worker` IDs, `role` (`reviewer` or `security`), a SHA-256 `receiptHash`, and the complete `identity` from the worker receipt. Identity contains `provider`, `org`, `orbId`, `name`, `spriteId`, `generation`, and `threadID`. The relay verifies the human-approved workflow, archived/idle child conversation and published PR evidence before invoking it. Direct operator invocation must establish those prerequisites too; this provider cannot query Amp or GitHub.
+
+Under the same lifecycle lock as spawn/pause/delete, retirement requires matching ownership, Sprite ID and generation, a paused record, and a stopped bootstrap. It journals the request fingerprint before DELETE and confirms absence before returning `retired`. `waiting_for_pause` means nothing was deleted. Unknown outcomes retain ownership; repeating the same request only reconciles absence, never blindly repeats DELETE. An uncertain deletion blocks resuming that still-existing Sprite until an operator resolves it.
+
+A tombstone remains until a later spawn creates a fresh incarnation. Old requests cannot delete the replacement. Continuing a retired thread needs fresh repository setup; unuploaded files and processes cannot be recovered. Back up evidence to Amp/GitHub before retirement. Reserve the Sprite-name prefix to this dispatcher, as for ordinary deletion.
+
+The local lifecycle tests simulate Sprites. Before enabling real reviews, validate the SSH environment/credentials and retirement/archive/reopen sequence with one explicitly approved disposable worker. The tests do not establish live Amp compatibility or preservation of attachments after provider-side deletion.
 
 ## Controller and bootstrap separation
 

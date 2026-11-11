@@ -4,7 +4,7 @@ WORKDIR /app
 RUN curl -fsSL --proto '=https' https://sprites.dev/dl/client/2026-11-03/sprite-linux-x86_64 -o /usr/local/bin/sprite \
  && echo '731af477ecf7328fd188c67b3649874c9107b6f0097c25888d0dd17aad823527  /usr/local/bin/sprite' | sha256sum -c - \
  && chmod 755 /usr/local/bin/sprite
-COPY package.json start.mjs dispatch.mjs hosted.mjs ./
+COPY package.json start.mjs dispatch.mjs hosted.mjs retire.mjs ./
 COPY src ./src
 COPY bootstrap ./bootstrap
 RUN node --input-type=module -e "import {ensureAmp} from './src/install-amp.mjs'; await ensureAmp('/app/.tools', {version:'0.0.1793707234-gc72860'});"

@@ -14,8 +14,9 @@ test('preparation uses argv/stdin, has a remote timeout, and excludes Amp creden
 let input = ''; process.stdin.on('data', c => input += c);
 process.stdin.on('end', () => fs.writeFileSync(${JSON.stringify(report)}, JSON.stringify({ args: process.argv.slice(2), env: process.env, input })));
 `, { mode: 0o700 });
+  const identity = { provider: 'test', org: 'test-org', orbId: 'amp-T-test', name: 'test-name', spriteId: 'sprite-1', generation: 'generation-1', threadID: 'T-test' };
   await prepareSprite({ spriteBin: binary, org: 'test-org', name: 'test-name', token: 'sprite-test-secret',
-    orbToken: 'orb-test-secret', binaryUrl: 'https://example.com/amp', binarySha: 'a'.repeat(64) }, new AbortController().signal);
+    orbToken: 'orb-test-secret', binaryUrl: 'https://example.com/amp', binarySha: 'a'.repeat(64), identity }, new AbortController().signal);
   const captured = JSON.parse(await readFile(report, 'utf8'));
   assert.ok(captured.args.includes('--no-port-forward'));
   assert.ok(captured.args.includes('220s'));
@@ -23,6 +24,8 @@ process.stdin.on('end', () => fs.writeFileSync(${JSON.stringify(report)}, JSON.s
   assert.equal(captured.env.ORB_TOKEN, undefined);
   assert.equal(captured.env.AMP_ORB_PROVIDER_TOKEN, undefined);
   assert.ok(captured.input.includes('sha256sum --check --status'));
+  assert.ok(captured.input.includes(Buffer.from(JSON.stringify(identity)).toString('base64')));
+  assert.ok(captured.input.includes('/etc/amp-orb-identity.json'));
   assert.ok(!captured.args.some(v => v.includes('secret')));
   assert.ok(!captured.input.includes('secret'));
 });

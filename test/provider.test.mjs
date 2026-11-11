@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, readdir, readFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { configuration, dispatch } from '../src/provider.mjs';
+import { configuration, retirementConfiguration, dispatch } from '../src/provider.mjs';
 
 function environment(dir, extra = {}) {
   return {
@@ -286,4 +286,105 @@ test('a service already stopped with a retained token is rewritten without it', 
   assert.equal(f.api.calls.filter(c => c.method === 'PUT' && c.body?.desired_state === 'stopped').length, 1);
   await f.run({ ORB_OPERATION: 'pause' });
   assert.equal(f.api.calls.filter(c => c.method === 'PUT' && c.body?.desired_state === 'stopped').length, 1);
+});
+
+async function retirementFixture(t) {
+  const f = await fixture(t);
+  const worker = 'T-11111111-2222-4333-8444-555555555555';
+  const env = environment(f.dir, { ORB_ID: `amp-${worker}`, SPRITES_ALLOW_WORKER_RETIREMENT: '1' });
+  let identity;
+  f.options.prepare = async c => { identity = c.identity; };
+  const run = extra => dispatch(configuration({ ...env, ...extra }), f.api, f.options);
+  await run();
+  const request = { version: 1, id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+    owner: 'T-99999999-8888-4777-8666-555555555555', worker, role: 'reviewer', identity, receiptHash: 'b'.repeat(64) };
+  return { ...f, env, request, run, retire: (r = request) => dispatch(retirementConfiguration(env, r), f.api, f.options) };
+}
+
+test('retirement is opt-in, worker-bound, paused-only, and repeatable without a second DELETE', async t => {
+  const f = await retirementFixture(t);
+  assert.throws(() => retirementConfiguration({ ...f.env, SPRITES_ALLOW_WORKER_RETIREMENT: '' }, f.request), /disabled/);
+  for (const patch of [ { role: 'author' }, { owner: f.request.worker }, { worker: f.request.owner },
+    { identity: { ...f.request.identity, org: 'other' } },
+    { identity: { ...f.request.identity, name: 'unrelated' } },
+    { identity: { ...f.request.identity, orbId: 'unknown-convention' } } ]) {
+    assert.throws(() => retirementConfiguration(f.env, { ...f.request, ...patch }));
+  }
+  assert.equal((await f.retire()).status, 'waiting_for_pause');
+  assert.ok(f.api.calls.every(c => c.method !== 'DELETE'));
+  await f.run({ ORB_OPERATION: 'pause' });
+  const result = await f.retire();
+  assert.equal(result.status, 'retired');
+  assert.deepEqual(result.identity, f.request.identity);
+  assert.equal(f.api.sprite, null);
+  assert.deepEqual(await f.retire(), result);
+  assert.equal(f.api.calls.filter(c => c.method === 'DELETE').length, 1);
+  await assert.rejects(f.retire({ ...f.request, receiptHash: 'c'.repeat(64) }), /Conflicting/);
+});
+
+test('retirement shares lifecycle locks and cannot delete a resumed or recreated worker', async t => {
+  const f = await retirementFixture(t);
+  await f.run({ ORB_OPERATION: 'pause' });
+  const lock = join(f.dir, 'test', `${f.request.identity.name}.lock`);
+  await mkdir(lock);
+  await assert.rejects(f.retire(), /locked/);
+  await rm(lock, { recursive: true });
+  await f.run(); // Same Sprite, new incarnation invalidates the old retirement request.
+  await f.run({ ORB_OPERATION: 'pause' });
+  await assert.rejects(f.retire(), /incarnation changed/);
+  f.api.sprite.id = 'replacement';
+  await assert.rejects(f.retire(), /ownership is unverified/);
+  assert.ok(f.api.calls.every(c => c.method !== 'DELETE'));
+});
+
+test('reopening after retirement creates fresh compute and old requests cannot delete it', async t => {
+  const f = await retirementFixture(t);
+  await f.run({ ORB_OPERATION: 'pause' });
+  await f.retire();
+  await f.run();
+  await f.run({ ORB_OPERATION: 'pause' });
+  // The fake reuses its Sprite ID deliberately; generation must still protect it.
+  await assert.rejects(f.retire(), /incarnation changed/);
+  assert.ok(f.api.sprite);
+  assert.equal(f.api.calls.filter(c => c.method === 'DELETE').length, 1);
+  assert.equal(f.api.calls.filter(c => c.method === 'POST').length, 2);
+});
+
+test('ambiguous retirement retains ownership and reconciles absence without repeating deletion', async t => {
+  const f = await retirementFixture(t);
+  await f.run({ ORB_OPERATION: 'pause' });
+  const request = f.api.request.bind(f.api);
+  f.api.request = async (...args) => {
+    const result = await request(...args);
+    if (args[0] === 'DELETE') throw new Error('lost response');
+    return result;
+  };
+  await assert.rejects(f.retire(), /lost response/);
+  assert.equal((await f.retire()).status, 'retired');
+  assert.equal(f.api.calls.filter(c => c.method === 'DELETE').length, 1);
+});
+
+test('unconfirmed retirement never repeats DELETE or resumes a worker being deleted', async t => {
+  const f = await retirementFixture(t);
+  await f.run({ ORB_OPERATION: 'pause' });
+  const request = f.api.request.bind(f.api);
+  let deletes = 0;
+  f.api.request = async (...args) => {
+    if (args[0] === 'DELETE') { deletes++; return {}; }
+    return request(...args);
+  };
+  await assert.rejects(f.retire(), /not yet confirmed/);
+  await assert.rejects(f.retire(), /outcome uncertain/);
+  await assert.rejects(f.run(), /Retirement is unresolved/);
+  assert.equal(deletes, 1);
+  f.api.sprite = null;
+  assert.equal((await f.retire()).status, 'retired');
+});
+
+test('retirement refuses a running bootstrap even when the ownership record says paused', async t => {
+  const f = await retirementFixture(t);
+  await f.run({ ORB_OPERATION: 'pause' });
+  f.api.service.desired_state = 'running';
+  await assert.rejects(f.retire(), /bootstrap is not stopped/);
+  assert.ok(f.api.calls.every(c => c.method !== 'DELETE'));
 });
