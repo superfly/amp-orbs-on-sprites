@@ -4,6 +4,7 @@
 !start.mjs
 !dispatch.mjs
 !hosted.mjs
+!retire.mjs
 !src/
 !src/**
 !bootstrap/
