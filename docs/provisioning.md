@@ -72,8 +72,11 @@ explicitly requests another build; rerun without it to resume a pending deploy.
   App management remains in Fly's authenticated dashboard.
 - One Sprite runtime credential restricted to this prefix. The token API contract
   follows the installer's authentication format, independently of the guest
-  runtime. Newer parent credentials support explicit action restrictions; the
-  current saved login uses prefix/expiry policy restrictions. The installer
+  runtime, and each contract rejects the other's fields. Macaroon parent
+  credentials mint a child with explicit action restrictions; the opaque saved
+  login rejects that request with HTTP 400 and takes prefix/expiry policy
+  restrictions instead. The installer tries the child request first and falls
+  back to the policy request only on HTTP 400. The installer
   always lists the new token back, confirms its stored `name_prefix` equals the
   requested prefix whether or not the create response carried `expires_at`,
   records its ID for later revocation, and verifies token administration is

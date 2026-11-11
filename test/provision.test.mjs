@@ -91,7 +91,39 @@ test('token issuance confirms restrictions through metadata when response omits 
   }});
   const result=await p.mintCredential(input);
   assert.equal(result.tokenId,'new-token');assert.equal(result.expiresAt,'future');assert.equal(result.confirmedPrefix,undefined);
-  assert.equal(issued.policy.name_prefix,'amp-test-');assert.equal(issued.name_prefix,'amp-test-');
+  assert.equal(issued.name_prefix,'amp-test-');assert.equal(issued.mint_ttl,0);assert.equal(issued.policy,undefined);
+});
+
+test('an opaque parent that rejects child-token fields gets the policy-only request',async()=>{
+  const {FlyPlatform}=await import('../provision/fly-platform.mjs');
+  const mint=(status)=>{
+    const p=new FlyPlatform({root:'.',directory:'.'});
+    const posts=[];let description;
+    p.sprites={request:async(method,path,body)=>{
+      if(method==='POST'){
+        posts.push(body);description=body.description;
+        if(body.sprites||body.ttl||body.name_prefix||'mint_ttl' in body)throw Object.assign(Error('rejected'),{status});
+        return {token:'opaque-test'};
+      }
+      return {tokens:[{id:'policy-token',description,policy:body?.policy||{name_prefix:'amp-test-',expires_at:'future'}}]};
+    }};
+    p.runtimeClient=()=>({request:async(method,path)=>{
+      if(path==='/tokens')throw Object.assign(Error('forbidden'),{status:403});
+      return {sprites:[]};
+    }});
+    return {p,posts};
+  };
+  const opaque=mint(400);
+  const result=await opaque.p.mintCredential(input);
+  assert.equal(result.tokenId,'policy-token');assert.equal(result.expiresAt,'future');
+  assert.equal(opaque.posts.length,2);
+  const [,fallback]=opaque.posts;
+  assert.deepEqual(Object.keys(fallback).sort(),['description','policy']);
+  assert.equal(fallback.policy.name_prefix,'amp-test-');assert.ok(!Number.isNaN(Date.parse(fallback.policy.expires_at)));
+  assert.equal(fallback.description,opaque.posts[0].description);
+  const denied=mint(403);
+  await assert.rejects(denied.p.mintCredential(input),e=>e.status===403);
+  assert.equal(denied.posts.length,1);
 });
 
 test('a credential that still permits administration is revoked before deployment',async()=>{
