@@ -112,13 +112,21 @@ export class FlyPlatform {
     const description = `Amp dispatcher ${spec.app} ${randomUUID()}`;
     const expiresAt = new Date(Date.now() + 90 * 86400_000).toISOString();
     const prefix = `${spec.provider}-`;
-    // Authentication format, not guest runtime, selects the token API contract.
-    // Supply the equivalent prefix/expiry restrictions in both formats.
-    const value = await this.sprites.request('POST','/tokens', {
-      description, ttl: 90 * 86400, name_prefix: prefix, mint_ttl: 0,
-      sprites: { '*': ['read','create','exec','start','stop','destroy','services'] },
-      policy: { name_prefix: prefix, expires_at: expiresAt },
-    });
+    // The parent's authentication format, not the guest runtime, selects the
+    // token API contract, and each contract rejects the other's fields. A
+    // macaroon parent mints an action-restricted child. An opaque parent (the
+    // saved CLI login) answers that request with HTTP 400, minting nothing, and
+    // takes the equivalent prefix/expiry policy restrictions instead.
+    let value;
+    try {
+      value = await this.sprites.request('POST','/tokens', {
+        description, ttl: 90 * 86400, name_prefix: prefix, mint_ttl: 0,
+        sprites: { '*': ['read','create','exec','start','stop','destroy','services'] },
+      });
+    } catch (error) {
+      if (error.status !== 400) throw error;
+      value = await this.sprites.request('POST','/tokens', { description, policy: { name_prefix: prefix, expires_at: expiresAt } });
+    }
     const credential = { token: value.token, expiresAt: value.expires_at || value.policy?.expires_at };
     try {
       // Always confirm the stored restriction from token metadata, whichever
