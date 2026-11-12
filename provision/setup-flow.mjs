@@ -93,6 +93,7 @@ export async function setupFlow({options={},env={},ui,connection,installations=[
   ui.log(`${action}: ${spec.app}, organization ${spec.org}, region ${spec.region}.`);
   if(!existing?.activated)ui.log('This creates one always-on 512 MB Machine and a 1 GB volume. Fly hosting, remote builds, and Sprite usage are billed to this organization.');
   if(ampProvider && !existing?.secretsConfigured)ui.log(`${existing?.ampProvider?'Reuse':'Create'} Amp provider ${safe(ampProvider.name)} (${ampProvider.workspace?`workspace ${safe(ampProvider.workspace)}`:'personal'}). Its token is transferred automatically to Fly app secrets.`);
+  if(ampProvider && !existing?.secretsConfigured && !ampProvider.defaultSet)ui.log(`Set it as the ${ampProvider.workspace?'workspace default (requires a workspace admin)':'personal default'} for new Orbs.`);
   if(options.rebuild)ui.log('The build runs on Fly. The existing dispatcher will briefly restart when the new image is deployed.');
   if(!options.yes && !await ui.confirm('Continue?')) {ui.log('Setup cancelled. No dispatcher resources were changed.');return null;}
   return run({spec,ampToken,ampProvider,handoff:!!options.handoff,rebuild:!!options.rebuild});
