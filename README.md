@@ -35,9 +35,11 @@ Follow the prompts to:
 2. Choose a provider name and whether it belongs to you or an Amp workspace.
 3. Review the deployment and costs, then sign into Amp if needed.
 
-Setup installs the tools it needs, creates the Amp provider, transfers its
-credentials, and deploys the service that manages your Orbs. You don't need
-Docker, an existing Amp CLI installation, or any token copying and pasting.
+Setup installs the tools it needs, creates the Amp provider, makes it your
+personal or workspace default, transfers its credentials, and deploys the service
+that manages your Orbs. Setting a workspace default requires a workspace admin.
+You don't need Docker, an existing Amp CLI installation, or any token copying and
+pasting.
 
 Wait for **“Dispatcher connected to Amp.”** Setup then prints your Fly.io app
 link and the provider name to select in Amp. You can close the terminal.

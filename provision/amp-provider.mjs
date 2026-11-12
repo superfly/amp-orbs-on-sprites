@@ -37,10 +37,17 @@ export class AmpProviderSetup {
   async ensureCLI() {
     const directory = join(this.root, '.tools', 'setup-amp');
     this.binary = (await this.install(directory, { log: this.log })).binary;
-    const supportsCreate = async () => /Usage: amp orb provider create\b/.test(await this.command(['orb', 'provider', 'create', '--help']));
-    if (!await supportsCreate()) {
+    const supportsSetup = async () => {
+      try {
+        for (const subcommand of ['create', 'set-default']) {
+          if (!new RegExp(`Usage: amp orb provider ${subcommand}\\b`).test(await this.command(['orb', 'provider', subcommand, '--help']))) return false;
+        }
+        return true;
+      } catch { return false; }
+    };
+    if (!await supportsSetup()) {
       this.binary = (await this.install(directory, { log: this.log, refresh: true })).binary;
-      if (!await supportsCreate()) throw new ProviderError('This Amp release does not support provider creation. Retry after updating Amp.');
+      if (!await supportsSetup()) throw new ProviderError('This Amp release does not support provider creation and default selection. Retry after updating Amp.');
     }
   }
   async ensureLogin() {
@@ -67,6 +74,15 @@ export class AmpProviderSetup {
       throw new ProviderError('Cannot read the saved Amp provider token. The CLI secret-storage format may have changed.');
     }
   }
+  async setDefault(state, journal) {
+    const { name, workspace } = state.ampProvider;
+    this.log(`Setting Amp provider ${name} as the ${workspace ? `workspace ${workspace}` : 'personal'} default…`);
+    const args = ['orb', 'provider', 'set-default', name];
+    if (workspace) args.push('--workspace', workspace);
+    try { await this.command(args); }
+    catch { throw new ProviderError('Amp provider was created, but setting it as default did not complete reliably. Workspace defaults require a workspace admin. Rerun setup to retry without creating another provider.'); }
+    await journal.write({ ...state, ampProvider: { ...state.ampProvider, defaultSet: true } });
+  }
   // Called under the installation lock. The journal never contains credentials.
   async resolve({ spec, provider, journal }) {
     const identity = ampProviderSpec(provider);
@@ -78,6 +94,11 @@ export class AmpProviderSetup {
     if (state?.fingerprint) {
       const token = await this.savedToken();
       if (!token || tokenFingerprint(token) !== state.fingerprint) throw new ProviderError('Amp’s saved provider token no longer matches this installation. Restore its original token through AMP_ORB_PROVIDER_TOKEN; do not create another provider to retry this installation.');
+      if (state.ampProvider && !state.ampProvider.defaultSet) {
+        await this.ensureCLI();
+        await this.ensureLogin();
+        await this.setDefault(state, journal);
+      }
       return token;
     }
     if (state && !state.ampProvider) throw new ProviderError('This installation needs its original AMP_ORB_PROVIDER_TOKEN. Automatic creation cannot replace an existing provider.');
@@ -99,7 +120,9 @@ export class AmpProviderSetup {
       catch { throw new ProviderError('Amp provider creation did not complete reliably. Inspect Amp Settings → Orbs before retrying; no token was transferred.'); }
       const token = await this.savedToken();
       if (!token || token === previous) throw new ProviderError('Amp did not save a fresh provider token. Inspect the created provider before recovery; no token was transferred.');
-      await journal.write({ ...state, fingerprint: tokenFingerprint(token), ampProvider: { ...identity, phase: 'created' } });
+      state = { ...state, fingerprint: tokenFingerprint(token), ampProvider: { ...identity, phase: 'created' } };
+      await journal.write(state);
+      await this.setDefault(state, journal);
       return token;
     } finally { await rm(lock, { recursive: true, force: true }); }
   }

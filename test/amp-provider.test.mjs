@@ -22,8 +22,9 @@ async function fixture(t) {
       assert.equal(options.env.AMP_URL,'https://ampcode.com');
       assert.equal(options.env.AMP_API_KEY,undefined);assert.equal(options.env.AMP_ORB_PROVIDER_TOKEN,undefined);
       calls.push(args);
-      if(args.includes('--help'))return {stdout:'Usage: amp orb provider create [options] <name>'};
+      if(args.includes('--help'))return {stdout:`Usage: amp orb provider ${args[2]} [options] <name>`};
       if(args[0]==='account')return {stdout:JSON.stringify({accounts:active?[{active:true}]:[]})};
+      if(args[2]==='set-default')return {stdout:''};
       await f.create();return {stdout:`Created provider ${token}`,stderr:'private-login'};
     }});
   f.amp=amp;f.journal={read:async()=>state,write:async s=>{state=structuredClone(s);}};
@@ -36,16 +37,32 @@ test('creates with normal login, transfers only the provider token, and saves on
   const f=await fixture(t);f.setActive(false);
   assert.equal(await f.resolve(),token);
   assert.ok(f.calls.some(a=>a[0]==='login'));
-  assert.deepEqual(f.calls.at(-1),['orb','provider','create','my-orbs']);
+  assert.deepEqual(f.calls.slice(-2),[['orb','provider','create','my-orbs'],['orb','provider','set-default','my-orbs']]);
   assert.equal(f.state.fingerprint,tokenFingerprint(token));
   assert.equal(f.state.ampProvider.phase,'created');
+  assert.equal(f.state.ampProvider.defaultSet,true);
   for(const secret of [token,'private-login'])assert.ok(!JSON.stringify([f.state,f.logs,f.calls]).includes(secret));
   assert.equal(JSON.parse(await readFile(f.amp.secretPath)).apiKey,'private-login');
 });
-test('workspace creation passes an explicit namespace',async t=>{
+test('workspace creation and default selection pass the same explicit namespace',async t=>{
   const f=await fixture(t);
   await f.amp.resolve({spec,provider:{...provider,workspace:'team'},journal:f.journal});
-  assert.deepEqual(f.calls.at(-1),['orb','provider','create','my-orbs','--workspace','team']);
+  assert.deepEqual(f.calls.slice(-2),[['orb','provider','create','my-orbs','--workspace','team'],['orb','provider','set-default','my-orbs','--workspace','team']]);
+  assert.equal(f.state.ampProvider.defaultSet,true);
+});
+test('failed default selection can retry without recreating the provider or leaking output',async t=>{
+  const f=await fixture(t);const run=f.amp.run;
+  f.amp.run=async(...args)=>{
+    if(args[1][2]==='set-default'&&!args[1].includes('--help'))throw Error(token);
+    return run(...args);
+  };
+  await assert.rejects(f.resolve(),e=>!e.message.includes(token)&&/Rerun setup to retry/.test(e.message));
+  assert.equal(f.state.ampProvider.phase,'created');assert.equal(f.state.ampProvider.defaultSet,undefined);
+  assert.equal(f.state.fingerprint,tokenFingerprint(token));
+  f.amp.run=run;
+  assert.equal(await f.resolve(),token);
+  assert.equal(f.state.ampProvider.defaultSet,true);
+  assert.equal(f.calls.filter(a=>a[2]==='create'&&!a.includes('--help')).length,1);
 });
 test('retry reuses the original token without creating, installing, or authenticating again',async t=>{
   const f=await fixture(t);await f.resolve();const count=f.calls.length;
@@ -78,10 +95,27 @@ test('refuses concurrent creation and changed installation/provider identities',
   await assert.rejects(f.amp.resolve({spec:{...spec,org:'other'},provider,journal:f.journal}),/identity changed/);
   await assert.rejects(f.amp.resolve({spec,provider:{...provider,name:'other'},journal:f.journal}),/identity changed/);
 });
-test('refreshes a cached CLI lacking the create subcommand',async t=>{
-  const f=await fixture(t);const original=f.amp.command.bind(f.amp);let help=0;
-  f.amp.command=async args=>args.includes('--help')&&help++===0?'Usage: amp orb provider <script>':original(args);
-  await f.resolve();assert.equal(f.installs.length,2);assert.equal(f.installs[1].refresh,true);
+test('refreshes a cached CLI lacking either required provider subcommand',async t=>{
+  for(const missing of ['create','set-default']) {
+    for(const throws of [false,true]) {
+      const f=await fixture(t);const original=f.amp.command.bind(f.amp);
+      f.amp.command=async args=>{
+        if(args.includes('--help')&&args[2]===missing&&f.installs.length===1) {
+          if(throws)throw Error('unsupported command');
+          return 'Usage: amp orb provider <script>';
+        }
+        return original(args);
+      };
+      await f.resolve();assert.equal(f.installs.length,2);assert.equal(f.installs[1].refresh,true);
+    }
+  }
+});
+test('fails before creation when the refreshed CLI still lacks default selection',async t=>{
+  const f=await fixture(t);const original=f.amp.command.bind(f.amp);
+  f.amp.command=async args=>args[2]==='set-default'?'Usage: amp orb provider <script>':original(args);
+  await assert.rejects(f.resolve(),/does not support.*default selection/);
+  assert.equal(f.state,null);assert.equal(f.installs.length,2);
+  assert.ok(!f.calls.some(a=>a[2]==='create'&&!a.includes('--help')));
 });
 test('secret path follows Amp platform rules and invalid names cannot become CLI options',()=>{
   assert.equal(ampSecretsPath({HOME:'/home/me',XDG_DATA_HOME:'/data'},'linux'),'/data/amp/secrets.json');

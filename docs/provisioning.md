@@ -13,8 +13,13 @@ Fly, selects an organization using its real slug, authorizes Sprites if needed,
 and chooses an Amp provider name and personal/workspace scope. After the review,
 setup installs a checksum-verified Amp CLI into `.tools/setup-amp/`, guides normal
 Amp login if needed, and runs `amp orb provider create NAME` (with
-`--workspace NAMESPACE` for workspace providers). No local Docker or preinstalled
-Amp CLI is required. A cached CLI without provider creation is refreshed.
+`--workspace NAMESPACE` for workspace providers). It then runs
+`amp orb provider set-default NAME`, using the same `--workspace NAMESPACE` for
+a workspace default (requires a workspace admin). No local Docker or preinstalled
+Amp CLI is required. A cached CLI without provider creation or default selection
+is refreshed from the verified official release. Default selection requires a
+CLI release newer than `0.0.1794456033`; for a separately installed CLI, run
+`amp update` first.
 
 Setup reads `orb-provider-token@https://ampcode.com/` from Amp's secret store
 immediately after creation and imports it as the dispatcher's
@@ -105,15 +110,20 @@ The caller holds an exclusive operation lock. The local client uses
 The journal contains installation identity, a provider-token fingerprint, resource
 IDs, image digest, credential expiry, and completed steps, never secret values.
 
-Automatic creation adds the Amp provider's name, workspace, and creation phase.
+Automatic creation adds the Amp provider's name, workspace, creation phase, and
+whether default selection succeeded.
 It journals intent before calling Amp, then the token fingerprint after confirmed
-creation. A deployment failure can reuse the matching token from Amp's store;
+creation, before setting the default. If setting the default fails, rerun setup:
+it retries that step without creating another provider. Once recorded as successful,
+default selection is not repeated on reruns. A deployment failure can reuse the
+matching token from Amp's store;
 after Fly secrets are staged, neither the local token nor an Amp login is needed
 to resume. Creating another provider replaces Amp's one default saved token. If
 that happens before staging, setup refuses the mismatch: restore the original
 provider token through `AMP_ORB_PROVIDER_TOKEN` to resume, or inspect and clean up
 the incomplete installation before starting over. Setup does not rotate tokens
-or change the selected provider automatically.
+or replace the recorded provider identity automatically. Existing-token installs
+and completed installations do not change the default.
 
 A failed/timed-out create or a crash before fingerprint capture leaves phase
 `creating`; reruns stop rather than risk creating a duplicate or using a stale

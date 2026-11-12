@@ -29,6 +29,8 @@ can be installed in this checkout. No Docker or token copy/paste is required.
 Rerun to resume/check an installation. --rebuild deploys the current source.
 --provider sets the Sprite prefix; --amp-provider sets the Amp provider name.
 New providers are personal unless --amp-workspace is supplied or chosen.
+Setup makes the new provider the personal or workspace default for new Orbs.
+Setting a workspace default requires a workspace admin.
 --yes accepts installation/deployment prompts; sign in beforehand for unattended
 setup. AMP_ORB_PROVIDER_TOKEN remains available for existing providers or CI.
 Tokens are never command flags.
