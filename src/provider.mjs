@@ -80,8 +80,11 @@ async function saveRecord(path, value) {
 export async function prepareSprite(config, signal) {
   const prepareScript = await readFile(new URL('../bootstrap/prepare.sh', import.meta.url), 'utf8');
   const runner = await readFile(new URL('../bootstrap/run.sh', import.meta.url), 'utf8');
+  const skill = await readFile(new URL('../bootstrap/sprite-connectors-skill.md', import.meta.url), 'utf8');
   const identity = Buffer.from(JSON.stringify(config.identity ?? null)).toString('base64');
-  const script = `${prepareScript}\nrunner_tmp=$(mktemp)\ncat >"$runner_tmp" <<'AMP_SPRITES_RUNNER'\n${runner}\nAMP_SPRITES_RUNNER\ninstall -m 0755 "$runner_tmp" /usr/local/bin/amp-orb-bootstrap\nprintf '%s' '${identity}' | base64 -d >"$runner_tmp"\ninstall -m 0644 "$runner_tmp" /etc/amp-orb-identity.json\nrm -f "$runner_tmp"\n`;
+  // Amp in the Orb does not read /.fly/AGENTS.md, so this skill tells it about the connector gateway.
+  const skillDir = '/home/user/.config/amp/skills/sprite-connectors';
+  const script = `${prepareScript}\nrunner_tmp=$(mktemp)\ncat >"$runner_tmp" <<'AMP_SPRITES_RUNNER'\n${runner}\nAMP_SPRITES_RUNNER\ninstall -m 0755 "$runner_tmp" /usr/local/bin/amp-orb-bootstrap\ncat >"$runner_tmp" <<'AMP_SPRITES_SKILL'\n${skill}\nAMP_SPRITES_SKILL\ninstall -d -m 0755 -o user -g user /home/user/.config /home/user/.config/amp /home/user/.config/amp/skills ${skillDir}\ninstall -m 0644 -o user -g user "$runner_tmp" ${skillDir}/SKILL.md\nprintf '%s' '${identity}' | base64 -d >"$runner_tmp"\ninstall -m 0644 "$runner_tmp" /etc/amp-orb-identity.json\nrm -f "$runner_tmp"\n`;
   await new Promise((accept, reject) => {
     // In particular do not inherit AMP_ORB_PROVIDER_TOKEN or ORB_TOKEN.
     const child = spawn(config.spriteBin, [

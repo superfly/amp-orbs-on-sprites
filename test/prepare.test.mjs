@@ -26,6 +26,8 @@ process.stdin.on('end', () => fs.writeFileSync(${JSON.stringify(report)}, JSON.s
   assert.ok(captured.input.includes('sha256sum --check --status'));
   assert.ok(captured.input.includes(Buffer.from(JSON.stringify(identity)).toString('base64')));
   assert.ok(captured.input.includes('/etc/amp-orb-identity.json'));
+  assert.ok(captured.input.includes('/home/user/.config/amp/skills/sprite-connectors/SKILL.md'));
+  assert.ok(captured.input.includes('http://sprite.internal/v1/gateway/list'));
   assert.ok(!captured.args.some(v => v.includes('secret')));
   assert.ok(!captured.input.includes('secret'));
 });

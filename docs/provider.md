@@ -83,6 +83,33 @@ To pause a test Orb, archive its thread in Amp (or use
 `.tools/amp threads archive THREAD_ID`). Pause active Orbs before stopping the
 controller with Ctrl-C; stopping the controller alone does not stop their Sprites.
 
+## Sprites connectors
+
+Orbs can call third-party APIs through the
+[Sprites connector gateway](https://docs.fly.io/sprites/concepts/connectors)
+without holding a token. Connectors and their access policies are set per
+sprite in the Sprites organization, so an Orb must discover what its sprite may
+use instead of assuming any connector exists. From inside the Orb:
+
+```sh
+curl -sS http://sprite.internal/v1/gateway/list
+curl -sS http://sprite.internal/v1/gateway/<provider>/<connection-id>/<path>
+```
+
+Use plain HTTP and the `/v1` prefix; HTTPS to `sprite.internal` fails, and
+`api.sprites.dev` rejects these calls. The list returns each usable
+connection's `gateway_base_url` and the providers that are not yet connected.
+The gateway forwards API calls only; Git clone and push through the GitHub
+connector return 404.
+
+Amp in the Orb does not read the base image's `/.fly/AGENTS.md`, so preparation
+installs [the `sprite-connectors` skill](../bootstrap/sprite-connectors-skill.md)
+in `/home/user/.config/amp/skills/`. It tells the agent to list connectors when
+a task needs an external API, and to send the user to the Sprites dashboard
+when one is missing. A connector with `allow_all` gives every Orb in the
+organization its credential, including threads started by other workspace
+members; prefer a name-prefix or label policy and endpoint lists.
+
 ## Configuration
 
 The start command reads `.env.local` and the process environment:
