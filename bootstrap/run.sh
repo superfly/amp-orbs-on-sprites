@@ -4,14 +4,26 @@
 set -euo pipefail
 amp_pid=''
 sleep_pid=''
+hold_pid=''
 signaled=''
-hold() { /.sprite/bin/sprite-env keep-awake --for 2m >/dev/null; }
+# Bash runs a trap only after a foreground command returns, and sprite-env does
+# not return while Sprites stops this service. Waiting on it in the background
+# lets a stop that lands during a renewal exit at once.
+hold() {
+  local status=0
+  /.sprite/bin/sprite-env keep-awake --for 2m >/dev/null &
+  hold_pid=$!
+  wait "$hold_pid" || status=$?
+  hold_pid=''
+  return "$status"
+}
 release() { /.sprite/bin/sprite-env keep-awake --release >/dev/null; }
 cleanup() {
   trap - EXIT INT TERM
   # While Sprites stops this service, sprite-env never answers and the stop
   # waits ~10s for SIGKILL. Pause releases the hold from the dispatcher instead.
   if [[ -z "$signaled" ]]; then release 2>/dev/null || true; fi
+  if [[ -n "$hold_pid" ]]; then kill "$hold_pid" 2>/dev/null || true; fi
   if [[ -n "$sleep_pid" ]]; then kill "$sleep_pid" 2>/dev/null || true; fi
   if [[ -n "$amp_pid" ]]; then
     kill "$amp_pid" 2>/dev/null || true

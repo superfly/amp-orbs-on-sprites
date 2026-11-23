@@ -6,8 +6,8 @@ import { ProviderError } from './api.mjs';
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const base = 'https://static.ampcode.com/cli';
-async function download(fetchImpl, path, maxBytes, timeout = 180_000) {
-  const response = await fetchImpl(`${base}/${path}`, { signal: AbortSignal.timeout(timeout), redirect: 'error' });
+async function download(fetchImpl, path, maxBytes, signal = AbortSignal.timeout(180_000)) {
+  const response = await fetchImpl(`${base}/${path}`, { signal, redirect: 'error' });
   if (!response.ok) throw new ProviderError('Could not download official Amp release');
   const chunks = []; let size = 0;
   for await (const chunk of response.body) {
@@ -17,33 +17,55 @@ async function download(fetchImpl, path, maxBytes, timeout = 180_000) {
   }
   return Buffer.concat(chunks);
 }
-async function latestVersion(fetchImpl, timeout) {
-  const version = (await download(fetchImpl, 'cli-version.txt', 1024, timeout)).toString().trim();
+// Applies to an operator's SPRITES_AMP_VERSION as well as the published one:
+// the version becomes part of the URL that Sprites download from.
+function checkedVersion(version) {
   if (!/^[A-Za-z0-9._-]+$/.test(version)) throw new ProviderError('Invalid Amp release version');
   return version;
 }
-async function checksum(fetchImpl, version, targetName, timeout) {
-  const value = (await download(fetchImpl, `${version}/${targetName}-amp.sha256`, 1024, timeout)).toString().trim();
+const latestVersion = async (fetchImpl, signal) => (await download(fetchImpl, 'cli-version.txt', 1024, signal)).toString().trim();
+async function checksum(fetchImpl, version, targetName, signal) {
+  const value = (await download(fetchImpl, `${version}/${targetName}-amp.sha256`, 1024, signal)).toString().trim();
   if (!/^[a-f0-9]{64}$/.test(value)) throw new ProviderError('Invalid Amp release checksum');
   return value;
 }
 const linuxRelease = (version, sha256) => ({ url: `${base}/${version}/amp-linux-x64`, sha256 });
+const validLinux = linux => typeof linux?.url === 'string' && linux.url.startsWith(`${base}/`)
+  && typeof linux.sha256 === 'string' && /^[a-f0-9]{64}$/.test(linux.sha256);
+const within = (now, at, ms) => now >= at && now - at < ms;
 
 // The latest official Linux binary for Sprites, looked up at most once per
 // maxAgeMs so a long-running dispatcher does not keep handing out the release
-// that was current when it started.
+// that was current when it started. Spawns must not wait on a release host that
+// is down: one deadline covers the whole lookup, a failed lookup is not retried
+// for retryMs, and the last release found is used meanwhile. Resolves to null
+// when no release is known and a retry is not yet due.
 export async function latestLinuxAmp(cachePath, {
-  fetchImpl = fetch, now = Date.now(), maxAgeMs = 3600_000, timeout = 10_000,
+  fetchImpl = fetch, now = Date.now(), maxAgeMs = 3600_000, retryMs = 300_000, timeout = 10_000, signal,
 } = {}) {
+  let cached = {};
+  try { cached = JSON.parse(await readFile(cachePath, 'utf8')) ?? {}; } catch { /* Look the release up. */ }
+  // A cache entry that would not pass the spawn configuration checks is ignored.
+  const known = validLinux(cached.linux) ? { version: cached.version, linux: cached.linux, checkedAt: cached.checkedAt } : {};
+  if (known.linux && within(now, known.checkedAt, maxAgeMs)) return known.linux;
+  if (within(now, cached.failedAt, retryMs)) return known.linux ?? null;
+  const save = async value => {
+    const temporary = `${cachePath}.${randomUUID()}.tmp`;
+    await writeFile(temporary, JSON.stringify(value), { mode: 0o600 });
+    await rename(temporary, cachePath);
+  };
+  const deadline = AbortSignal.any([AbortSignal.timeout(timeout), ...(signal ? [signal] : [])]);
+  let version, linux;
   try {
-    const cached = JSON.parse(await readFile(cachePath, 'utf8'));
-    if (now - cached.checkedAt < maxAgeMs && now >= cached.checkedAt) return cached.linux;
-  } catch { /* Look the release up again. */ }
-  const version = await latestVersion(fetchImpl, timeout);
-  const linux = linuxRelease(version, await checksum(fetchImpl, version, 'linux-x64', timeout));
-  const temporary = `${cachePath}.${randomUUID()}.tmp`;
-  await writeFile(temporary, JSON.stringify({ version, linux, checkedAt: now }), { mode: 0o600 });
-  await rename(temporary, cachePath);
+    version = checkedVersion(await latestVersion(fetchImpl, deadline));
+    linux = linuxRelease(version, await checksum(fetchImpl, version, 'linux-x64', deadline));
+  } catch (error) {
+    // A dispatcher shutting down says nothing about the release host.
+    if (!signal?.aborted) await save({ ...known, failedAt: now }).catch(() => {});
+    if (known.linux) return known.linux;
+    throw error;
+  }
+  await save({ version, linux, checkedAt: now }).catch(() => {});
   return linux;
 }
 
@@ -62,7 +84,7 @@ export async function ensureAmp(directory, {
         && sha256(await readFile(binary)) === cached.sha256) return { ...cached, binary };
   } catch { /* Install missing or invalid cached binary. */ }
   await mkdir(directory, { recursive: true, mode: 0o700 });
-  version ||= await latestVersion(fetchImpl);
+  version = checkedVersion(version || await latestVersion(fetchImpl));
   const [digest, linuxDigest] = await Promise.all([checksum(fetchImpl, version, target), checksum(fetchImpl, version, 'linux-x64')]);
   log(`Installing verified Amp ${version} for ${target}.`);
   const bytes = gunzipSync(await download(fetchImpl, `${version}/amp-${target}.gz`, 256 * 1024 * 1024), { maxOutputLength: 512 * 1024 * 1024 });

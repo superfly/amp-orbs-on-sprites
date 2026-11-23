@@ -42,6 +42,9 @@ test('installer rejects a checksum mismatch and invalid version metadata', async
   const fetchImpl=async url=>new Response(url.endsWith('cli-version.txt')?'test':url.endsWith('.sha256')?'a'.repeat(64):gzipSync(Buffer.from('bad')));
   await assert.rejects(ensureAmp(directory,{fetchImpl,log:()=>{}}),/checksum mismatch/);
   await assert.rejects(ensureAmp(directory,{fetchImpl:async()=>new Response('../bad')}),/Invalid Amp release version/);
+  // An operator's SPRITES_AMP_VERSION is checked before any request is made.
+  const none=async()=>assert.fail('no request expected');
+  for(const version of ['../bad','1.2 ','1?x']) await assert.rejects(ensureAmp(directory,{fetchImpl:none,version}),/Invalid Amp release version/);
 });
 
 test('Sprite binary lookup follows new releases and caches each lookup for an hour', async t => {
@@ -64,4 +67,46 @@ test('Sprite binary lookup follows new releases and caches each lookup for an ho
   assert.deepEqual(await latestLinuxAmp(cache,{fetchImpl,now:at+3600_000}),
     {url:'https://static.ampcode.com/cli/v2/amp-linux-x64',sha256:'2'.repeat(64)});
   await assert.rejects(latestLinuxAmp(join(directory,'other.json'),{fetchImpl:async()=>new Response('x',{status:503})}),/Could not download/);
+});
+
+test('a failing release host costs one lookup per retry interval and keeps the last release', async t => {
+  const directory=await mkdtemp(join(tmpdir(),'amp-latest-test-'));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  const cache=join(directory,'release.json');
+  let calls=0, up=true;
+  const fetchImpl=async url=>{
+    calls++;
+    if(!up) return new Response('x',{status:503});
+    return new Response(url.endsWith('cli-version.txt')?'v1':'1'.repeat(64));
+  };
+  const at=1_000_000, hour=3600_000, known={url:'https://static.ampcode.com/cli/v1/amp-linux-x64',sha256:'1'.repeat(64)};
+  // Nothing known yet: the caller keeps its own release and does not ask again for five minutes.
+  up=false;
+  await assert.rejects(latestLinuxAmp(cache,{fetchImpl,now:at}),/Could not download/);
+  assert.equal(await latestLinuxAmp(cache,{fetchImpl,now:at+299_000}),null);
+  assert.equal(calls,1);
+  up=true;
+  assert.deepEqual(await latestLinuxAmp(cache,{fetchImpl,now:at+300_000}),known);
+  // An expired entry outlives a failed refresh instead of giving way to an older release.
+  up=false; calls=0;
+  assert.deepEqual(await latestLinuxAmp(cache,{fetchImpl,now:at+2*hour}),known);
+  assert.deepEqual(await latestLinuxAmp(cache,{fetchImpl,now:at+2*hour+299_000}),known);
+  assert.equal(calls,1);
+});
+
+test('release cache entries are validated and a shutdown is not recorded as a failure', async t => {
+  const directory=await mkdtemp(join(tmpdir(),'amp-latest-test-'));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  const cache=join(directory,'release.json');
+  const fetchImpl=async url=>new Response(url.endsWith('cli-version.txt')?'v2':'2'.repeat(64));
+  const at=1_000_000;
+  for(const linux of [{}, {url:'https://example.com/amp',sha256:'1'.repeat(64)}, {url:'https://static.ampcode.com/cli/v1/amp-linux-x64',sha256:'bad'}]) {
+    await writeFile(cache,JSON.stringify({linux,checkedAt:at}));
+    assert.equal((await latestLinuxAmp(cache,{fetchImpl,now:at+1})).sha256,'2'.repeat(64));
+  }
+  const other=join(directory,'other.json');
+  const abort=new AbortController(); abort.abort();
+  const aborted=async(url,{signal})=>{signal.throwIfAborted();return new Response('v2');};
+  await assert.rejects(latestLinuxAmp(other,{fetchImpl:aborted,now:at,signal:abort.signal}));
+  await assert.rejects(readFile(other),{code:'ENOENT'});
 });
