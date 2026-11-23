@@ -107,9 +107,28 @@ Amp in the Orb does not read the base image's `/.fly/AGENTS.md`, so preparation
 installs [the `sprite-connectors` skill](../bootstrap/sprite-connectors-skill.md)
 in `/home/user/.config/amp/skills/`. It tells the agent to list connectors when
 a task needs an external API, and to send the user to the Sprites dashboard
-when one is missing. A connector with `allow_all` gives every Orb in the
-organization its credential, including threads started by other workspace
-members; prefer a name-prefix or label policy and endpoint lists.
+when one is missing. When Amp's own `git push` is denied, for example because
+Amp's GitHub App is not installed on the repository's owner, the skill has the
+agent push a branch and open the pull request through the GitHub connector's
+REST API (blobs, a tree, a commit, a ref, then the pull request).
+
+Those writes act as the GitHub account that authorized the connector, so its
+access policy is the safety boundary. A connector with `allow_all` gives every
+Sprite in the organization that account, including Orbs started by other
+workspace members. Restrict it to this provider's Sprites with a name-prefix
+policy set to the provider prefix (`SPRITES_PROVIDER_ID`) followed by `-`,
+because Orb Sprites are named `<prefix>-<hash>`. Limit paths with endpoint
+lists, for example:
+
+```json
+{
+  "access_policy": {
+    "name_prefix": "YOUR_PROVIDER_PREFIX-",
+    "allowed_endpoints": ["/user", "/graphql", "/repos/OWNER/REPO/*"],
+    "blocked_endpoints": ["/repos/OWNER/REPO/hooks*", "/repos/OWNER/REPO/collaborators*", "/repos/OWNER/REPO/keys*"]
+  }
+}
+```
 
 ## Configuration
 
