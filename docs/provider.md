@@ -67,9 +67,10 @@ thread's tool results to establish success.
 
 Quiet outbound connections do not reliably keep a Sprite awake. Bootstrap holds
 an expiring Sprites 2 `keep-awake` lease while Amp considers the Orb active. The wrapper renews it every
-30 seconds, attempts release on exit, and allows it to expire after two minutes
-if killed abruptly. Pause explicitly releases the lease after stopping the service,
-because group termination can interrupt shell cleanup. The hold prevents a quiet
+30 seconds, releases it when Amp exits on its own, and allows it to expire after
+two minutes otherwise. It does not release on SIGTERM: while Sprites stops the
+service, `sprite-env` does not answer, so the stop would wait about 10 seconds
+for SIGKILL. Pause explicitly releases the lease after stopping the service. The hold prevents a quiet
 connection from sleeping and causing repeated spawn requests while the Orb is active.
 The guest command is `/.sprite/bin/sprite-env keep-awake`; the published
 [Tasks API guide](https://docs.fly.io/sprites/keeping-sprites-running) describes

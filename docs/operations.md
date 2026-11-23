@@ -89,6 +89,8 @@ before bootstrap. Confirm that the organization routes creation to Sprites 2
 before installing this provider.
 
 The live guest exposes `sprite-env keep-awake --for`, `--release`, and `status`.
+Inside a service that Sprites is stopping, `sprite-env` does not return, so the
+stop waits about 10 seconds for SIGKILL (measured November 23, 2026).
 The published `/v1/tasks` endpoint returns 404 here. Service creation uses
 `process.argv/cwd/env`, `restart=always`, and `desired_state=running`.
 Service GET wraps configuration and runtime in `data`; PUT streams a final
