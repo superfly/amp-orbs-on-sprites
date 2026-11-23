@@ -62,6 +62,7 @@ try {
     SPRITES_STATE_DIR: stateDir, SPRITES_NATIVE_BASE: '1', SPRITE_BIN: config.spriteBin,
     SPRITES_AMP_BINARY_URL: release.linux.url, SPRITES_AMP_BINARY_SHA256: release.linux.sha256 };
   if (config.token) env.SPRITE_TOKEN = config.token;
+  if (process.env.SPRITES_AMP_VERSION) env.SPRITES_AMP_VERSION = process.env.SPRITES_AMP_VERSION;
   const child = spawn(release.binary, ['orb', 'provider', join(root, 'dispatch.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   for (const stream of [child.stdout, child.stderr]) createInterface({ input: stream }).on('line', line => {
     if (line.includes('Orb provider started')) status('connected');

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
-import { ensureAmp } from '../src/install-amp.mjs';
+import { ensureAmp, latestLinuxAmp } from '../src/install-amp.mjs';
 
 test('installer verifies official checksums, caches the binary, and detects tampering', async t => {
   const directory=await mkdtemp(join(tmpdir(),'amp-install-test-'));
@@ -42,4 +42,26 @@ test('installer rejects a checksum mismatch and invalid version metadata', async
   const fetchImpl=async url=>new Response(url.endsWith('cli-version.txt')?'test':url.endsWith('.sha256')?'a'.repeat(64):gzipSync(Buffer.from('bad')));
   await assert.rejects(ensureAmp(directory,{fetchImpl,log:()=>{}}),/checksum mismatch/);
   await assert.rejects(ensureAmp(directory,{fetchImpl:async()=>new Response('../bad')}),/Invalid Amp release version/);
+});
+
+test('Sprite binary lookup follows new releases and caches each lookup for an hour', async t => {
+  const directory=await mkdtemp(join(tmpdir(),'amp-latest-test-'));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  const cache=join(directory,'release.json');
+  let version='v1', calls=0;
+  const fetchImpl=async url=>{
+    calls++;
+    if(url.endsWith('cli-version.txt')) return new Response(version);
+    assert.ok(url.endsWith(`/${version}/linux-x64-amp.sha256`));
+    return new Response((version==='v1'?'1':'2').repeat(64));
+  };
+  const at=1_000_000;
+  assert.deepEqual(await latestLinuxAmp(cache,{fetchImpl,now:at}),
+    {url:'https://static.ampcode.com/cli/v1/amp-linux-x64',sha256:'1'.repeat(64)});
+  version='v2';
+  assert.equal((await latestLinuxAmp(cache,{fetchImpl,now:at+3599_000})).sha256,'1'.repeat(64));
+  assert.equal(calls,2);
+  assert.deepEqual(await latestLinuxAmp(cache,{fetchImpl,now:at+3600_000}),
+    {url:'https://static.ampcode.com/cli/v2/amp-linux-x64',sha256:'2'.repeat(64)});
+  await assert.rejects(latestLinuxAmp(join(directory,'other.json'),{fetchImpl:async()=>new Response('x',{status:503})}),/Could not download/);
 });

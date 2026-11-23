@@ -122,7 +122,7 @@ The start command reads `.env.local` and the process environment:
 | `SPRITES_STATE_DIR` | Persistent controller state; defaults to this repository's `.state/`. |
 | `SPRITE_BIN` | Sprite executable path; defaults to `sprite` on PATH. |
 | `SPRITE_TOKEN` | Optional for unattended hosts; otherwise use the saved Sprite login. |
-| `SPRITES_AMP_VERSION` | Optional exact Amp release. Otherwise install latest once and reuse the verified cache. |
+| `SPRITES_AMP_VERSION` | Optional exact Amp release for the controller and new Sprites. Otherwise the controller installs latest once and reuses the verified cache, and each spawn gives the Sprite the latest Linux release, looked up at most hourly and falling back to the controller's release. |
 
 Hosted setup generates a provider prefix unless you supply one. Do not change a
 provider's prefix or lose its state directory while it owns Orbs. Records bind
