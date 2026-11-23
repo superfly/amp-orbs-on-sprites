@@ -59,7 +59,9 @@ itself are outside this adapter's pinning guarantee. Amp updates itself into
 it was started from. Started from the pinned `/usr/local/bin/amp`, that restart
 runs the old binary again and loops without connecting, so the Orb fails to
 resume. The service therefore runs the self-updated copy once a working one
-exists and uses the pinned binary only until then.
+exists and uses the pinned binary only until then. Once Amp has linked
+`/usr/local/bin/amp` to that working copy, preparation keeps the link instead
+of downloading the pinned binary again.
 
 The service is named `amp-orb-bootstrap`. It launches Amp as `user` with sudo's
 home-directory handling. Stop uses the supervised service API rather than a PID

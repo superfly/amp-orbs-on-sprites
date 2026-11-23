@@ -25,7 +25,13 @@ printf 'user ALL=(ALL) NOPASSWD: ALL\n' >"$sudoers"
 visudo -cf "$sudoers" >/dev/null
 install -m 0440 "$sudoers" /etc/sudoers.d/amp-orb-user
 
-if [[ ! -f /usr/local/bin/amp ]] || ! printf '%s  /usr/local/bin/amp\n' "$binary_sha" | sha256sum --check --status; then
+# Once Amp has updated itself, it links /usr/local/bin/amp to its own copy and
+# run.sh starts that copy, so the pinned binary is only needed until then. A
+# digest check through that link fails whenever Amp is newer than the pin, and
+# replacing the link would re-download ~150 MB on every spawn for nothing.
+if [[ /usr/local/bin/amp -ef /home/user/.amp/bin/amp ]] && sudo -n -H -u user /usr/local/bin/amp --version >/dev/null 2>&1; then
+  :
+elif [[ ! -f /usr/local/bin/amp ]] || ! printf '%s  /usr/local/bin/amp\n' "$binary_sha" | sha256sum --check --status; then
   binary_tmp=$(mktemp)
   curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
     --connect-timeout 15 --max-time 180 "$binary_url" --output "$binary_tmp"
