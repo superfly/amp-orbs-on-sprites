@@ -4,11 +4,26 @@
 set -euo pipefail
 amp_pid=''
 sleep_pid=''
-hold() { /.sprite/bin/sprite-env keep-awake --for 2m >/dev/null; }
+hold_pid=''
+signaled=''
+# Bash runs a trap only after a foreground command returns, and sprite-env does
+# not return while Sprites stops this service. Waiting on it in the background
+# lets a stop that lands during a renewal exit at once.
+hold() {
+  local status=0
+  /.sprite/bin/sprite-env keep-awake --for 2m >/dev/null &
+  hold_pid=$!
+  wait "$hold_pid" || status=$?
+  hold_pid=''
+  return "$status"
+}
 release() { /.sprite/bin/sprite-env keep-awake --release >/dev/null; }
 cleanup() {
   trap - EXIT INT TERM
-  release 2>/dev/null || true
+  # While Sprites stops this service, sprite-env never answers and the stop
+  # waits ~10s for SIGKILL. Pause releases the hold from the dispatcher instead.
+  if [[ -z "$signaled" ]]; then release 2>/dev/null || true; fi
+  if [[ -n "$hold_pid" ]]; then kill "$hold_pid" 2>/dev/null || true; fi
   if [[ -n "$sleep_pid" ]]; then kill "$sleep_pid" 2>/dev/null || true; fi
   if [[ -n "$amp_pid" ]]; then
     kill "$amp_pid" 2>/dev/null || true
@@ -16,8 +31,8 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
-trap 'exit 143' TERM
-trap 'exit 130' INT
+trap 'signaled=1; exit 143' TERM
+trap 'signaled=1; exit 130' INT
 # Amp updates itself into ~/.amp/bin/amp and then restarts by re-executing the
 # path it was started from. Started from the pinned /usr/local/bin/amp, that
 # restart runs the old binary again and loops without ever connecting, so run

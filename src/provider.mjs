@@ -44,6 +44,17 @@ export function configuration(env) {
   return config;
 }
 
+// Hand fresh Sprites the current Amp when the launcher asked for it. The binary
+// URL and digest from the environment stay in force otherwise, and whenever the
+// lookup has nothing to offer, so a direct integration keeps the binary it set.
+export async function followLatestAmp(config, env, lookup) {
+  if (config.operation !== 'spawn' || env.SPRITES_AMP_FOLLOW_LATEST !== '1') return config;
+  let latest = null;
+  try { latest = await lookup(); } catch { /* Keep the release from the environment. */ }
+  if (latest) Object.assign(config, { binaryUrl: latest.url, binarySha: latest.sha256 });
+  return config;
+}
+
 // Amp currently uses amp-<thread ID>. Unknown formats are not eligible for retirement.
 function threadForOrb(orbId) {
   const match = /^amp-(?:T-)?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.exec(orbId);

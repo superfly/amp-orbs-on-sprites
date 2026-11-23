@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-import { configuration, dispatch } from './src/provider.mjs';
+import { join } from 'node:path';
+import { configuration, dispatch, followLatestAmp } from './src/provider.mjs';
 import { SpritesAPI, ProviderError } from './src/api.mjs';
 import { SpritesCLIAPI } from './src/cli-api.mjs';
+import { latestLinuxAmp } from './src/install-amp.mjs';
 
 // Leave thirty seconds of Amp's five-minute dispatch window for shutdown.
 const abort = new AbortController();
@@ -14,6 +16,8 @@ process.once('SIGTERM', () => abort.abort());
 process.once('SIGINT', () => abort.abort());
 try {
   const config = configuration(process.env);
+  await followLatestAmp(config, process.env,
+    () => latestLinuxAmp(join(config.stateDir, 'amp-linux-release.json'), { signal: abort.signal }));
   const api = config.token ? new SpritesAPI(config.token, abort.signal) : new SpritesCLIAPI(config, abort.signal);
   await dispatch(config, api, { signal: abort.signal });
 } catch (error) {

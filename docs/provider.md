@@ -67,9 +67,10 @@ thread's tool results to establish success.
 
 Quiet outbound connections do not reliably keep a Sprite awake. Bootstrap holds
 an expiring Sprites 2 `keep-awake` lease while Amp considers the Orb active. The wrapper renews it every
-30 seconds, attempts release on exit, and allows it to expire after two minutes
-if killed abruptly. Pause explicitly releases the lease after stopping the service,
-because group termination can interrupt shell cleanup. The hold prevents a quiet
+30 seconds, releases it when Amp exits on its own, and allows it to expire after
+two minutes otherwise. It does not release on SIGTERM: while Sprites stops the
+service, `sprite-env` does not answer, so the stop would wait about 10 seconds
+for SIGKILL. Pause explicitly releases the lease after stopping the service. The hold prevents a quiet
 connection from sleeping and causing repeated spawn requests while the Orb is active.
 The guest command is `/.sprite/bin/sprite-env keep-awake`; the published
 [Tasks API guide](https://docs.fly.io/sprites/keeping-sprites-running) describes
@@ -121,7 +122,7 @@ The start command reads `.env.local` and the process environment:
 | `SPRITES_STATE_DIR` | Persistent controller state; defaults to this repository's `.state/`. |
 | `SPRITE_BIN` | Sprite executable path; defaults to `sprite` on PATH. |
 | `SPRITE_TOKEN` | Optional for unattended hosts; otherwise use the saved Sprite login. |
-| `SPRITES_AMP_VERSION` | Optional exact Amp release. Otherwise install latest once and reuse the verified cache. |
+| `SPRITES_AMP_VERSION` | Optional exact Amp release for the controller and new Sprites. Otherwise the controller installs latest once and reuses the verified cache (the hosted image ships a fixed controller release), and each spawn gives the Sprite the latest Linux release, looked up at most hourly. If the lookup fails, the spawn uses the last release found, or the controller's release if none was, and the lookup is not retried for five minutes. |
 
 Hosted setup generates a provider prefix unless you supply one. Do not change a
 provider's prefix or lose its state directory while it owns Orbs. Records bind
@@ -131,7 +132,10 @@ for the same provider token; distributed coordination is not implemented.
 
 For direct dispatch/service-manager integration, set `SPRITE_ORG`,
 `SPRITES_PROVIDER_ID`, `SPRITES_STATE_DIR`, `SPRITES_NATIVE_BASE=1`,
-`SPRITES_AMP_BINARY_URL`, and `SPRITES_AMP_BINARY_SHA256`. Amp supplies its job
+`SPRITES_AMP_BINARY_URL`, and `SPRITES_AMP_BINARY_SHA256`. Sprites receive exactly
+that binary. The start command also sets `SPRITES_AMP_FOLLOW_LATEST=1` when no
+`SPRITES_AMP_VERSION` is given, which lets each spawn replace the binary with the
+latest official release; leave it unset to keep the one you configured. Amp supplies its job
 variables. Custom adapter settings use `SPRITES_*`; use those names rather than
 `AMP_BINARY_*` so Amp forwards the configuration to the adapter.
 

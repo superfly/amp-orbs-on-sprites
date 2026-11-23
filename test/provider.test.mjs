@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, readdir, readFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { configuration, retirementConfiguration, dispatch } from '../src/provider.mjs';
+import { configuration, retirementConfiguration, dispatch, followLatestAmp } from '../src/provider.mjs';
 
 function environment(dir, extra = {}) {
   return {
@@ -208,6 +208,24 @@ test('invalid configuration fails before any resources are touched', () => {
     { SPRITES_AMP_BINARY_SHA256: 'bad' }, { SPRITES_AMP_BINARY_URL: 'http://example.com/amp' },
     { AMP_URL: 'https://name:secret@example.com' }, { SPRITES_AMP_BINARY_URL: 'https://example.com/?token=secret' },
   ]) assert.throws(() => configuration(environment('/tmp/state', override)));
+});
+
+test('only an opted-in spawn takes the latest release, and a failed lookup keeps the configured one', async () => {
+  const latest = { url: 'https://static.ampcode.com/cli/v2/amp-linux-x64', sha256: 'b'.repeat(64) };
+  const binary = async (extra, lookup) => {
+    const config = await followLatestAmp(configuration(environment('/tmp/state', extra)), environment('/tmp/state', extra), lookup);
+    return { url: config.binaryUrl, sha256: config.binarySha };
+  };
+  const configured = { url: 'https://example.com/amp', sha256: 'a'.repeat(64) };
+  const unused = async () => assert.fail('no lookup expected');
+  const follow = { SPRITES_AMP_FOLLOW_LATEST: '1' };
+  // A direct integration that sets only the binary URL and digest keeps them.
+  assert.deepEqual(await binary({}, unused), configured);
+  assert.deepEqual(await binary(follow, async () => latest), latest);
+  assert.deepEqual(await binary(follow, async () => null), configured);
+  assert.deepEqual(await binary(follow, async () => { throw new Error('offline'); }), configured);
+  assert.deepEqual(await binary(follow, () => { throw new Error('offline'); }), configured);
+  for (const ORB_OPERATION of ['pause', 'delete']) await followLatestAmp(configuration(environment('/tmp/state', { ...follow, ORB_OPERATION })), follow, unused);
 });
 
 test('current runtime uses process argv and persists stopped state across pause/resume', async t => {
